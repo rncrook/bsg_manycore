@@ -166,7 +166,7 @@ module bsg_manycore_proc_vanilla
   logic [dmem_addr_width_lp-1:0] remote_dmem_rx_addr_lo;
   logic [data_mask_width_lp-1:0] remote_dmem_rx_mask_lo;
   logic [data_width_p-1:0] remote_dmem_rx_data_lo;
-  logic [data_width_p-1:0] remote_dmem_data_li; // unmodified
+  logic [data_width_p-1:0] remote_dmem_core_data_li;
   logic remote_dmem_rx_yumi_li;
 
   logic icache_v_lo;
@@ -215,7 +215,7 @@ module bsg_manycore_proc_vanilla
     ,.remote_dmem_addr_o(remote_dmem_rx_addr_lo)
     ,.remote_dmem_data_o(remote_dmem_rx_data_lo)
     ,.remote_dmem_mask_o(remote_dmem_rx_mask_lo)
-    ,.remote_dmem_data_i(remote_dmem_data_li)
+    ,.remote_dmem_data_i(remote_dmem_core_data_li)
     ,.remote_dmem_yumi_i(remote_dmem_rx_yumi_li)
 
     ,.icache_v_o(icache_v_lo)
@@ -242,8 +242,8 @@ module bsg_manycore_proc_vanilla
 
   // TX unit
   //
-  remote_req_s remote_req;
-  logic remote_req_v;
+  remote_req_s remote_req_core, remote_req_tx;
+  logic remote_req_v, remote_req_tx_v_lo;
   logic remote_req_credit;
 
   logic ifetch_v_lo;
@@ -263,9 +263,9 @@ module bsg_manycore_proc_vanilla
 
   logic invalid_eva_access_lo;
 
+  logic int_remote_load_resp_tx_v_lo, int_remote_load_resp_core_v_lo;
 
-  // dma additions to network_tx signals
-  logic remote_req_tx_v_lo;
+  logic int_remote_load_resp_dma_yumi_lo;
 
   network_tx #(
     .data_width_p(data_width_p)
@@ -311,7 +311,7 @@ module bsg_manycore_proc_vanilla
     ,.my_x_i(my_x_i)
     ,.my_y_i(my_y_i)
 
-    ,.remote_req_i(remote_req) // from vcore
+    ,.remote_req_i(remote_req_tx) //
     ,.remote_req_v_i(remote_req_tx_v_lo) // from dma
     ,.remote_req_credit_o(remote_req_credit)
 
@@ -326,9 +326,9 @@ module bsg_manycore_proc_vanilla
 
     ,.int_remote_load_resp_rd_o(int_remote_load_resp_rd_lo)
     ,.int_remote_load_resp_data_o(int_remote_load_resp_data_lo)
-    ,.int_remote_load_resp_v_o(int_remote_load_resp_v_lo)
+    ,.int_remote_load_resp_v_o(int_remote_load_resp_tx_v_lo)
     ,.int_remote_load_resp_force_o(int_remote_load_resp_force_lo)
-    ,.int_remote_load_resp_yumi_i(int_remote_load_resp_yumi_li)
+    ,.int_remote_load_resp_yumi_i(int_remote_load_resp_yumi_li | int_remote_load_resp_dma_yumi_lo)
 
     ,.invalid_eva_access_o(invalid_eva_access_lo)
   );
@@ -343,6 +343,9 @@ module bsg_manycore_proc_vanilla
   logic [data_width_p-1:0] remote_dmem_core_data_lo;
   logic remote_dmem_core_yumi_li;
 
+  logic dma_credit_give_back_lo;
+
+
 
   vanilla_dma_engine #(
     .data_width_p(data_width_p)
@@ -354,8 +357,9 @@ module bsg_manycore_proc_vanilla
 
     // outgoing request interface from vanilla core
     // --------------------------------------------
-    , .remote_req_core_i(remote_req)
+    , .remote_req_core_i(remote_req_core)
     , .remote_req_core_v_i(remote_req_v)
+    , .give_credit_back_o(dma_credit_give_back_lo)
 
 
     // incoming request interface to vanilla core
@@ -367,11 +371,24 @@ module bsg_manycore_proc_vanilla
     , .remote_dmem_core_mask_o (remote_dmem_core_mask_lo)
     , .remote_dmem_core_data_o (remote_dmem_core_data_lo)
     , .remote_dmem_core_yumi_i (remote_dmem_core_yumi_li)
+    , .remote_dmem_core_data_i (remote_dmem_core_data_li)
 
 
     // network TX interface (reqeuest/response)
     // --------------------------------------------
     , .remote_req_tx_v_o (remote_req_tx_v_lo)
+    , .remote_req_tx_o   (remote_req_tx)
+
+    // tx response
+    , .int_remote_load_resp_tx_v_i   (int_remote_load_resp_tx_v_lo)
+    , .int_remote_load_resp_core_v_o (int_remote_load_resp_core_v_lo)
+    , .int_remote_load_resp_rd_i     (int_remote_load_resp_rd_lo)
+    , .int_remote_load_resp_data_i   (int_remote_load_resp_data_lo)
+    , .int_remote_load_resp_yumi_o   (int_remote_load_resp_dma_yumi_lo)
+
+
+
+
 
 
     // network RX interface
@@ -429,9 +446,9 @@ module bsg_manycore_proc_vanilla
 
     ,.pc_init_val_i(pc_init_val)
 
-    ,.remote_req_o(remote_req)
+    ,.remote_req_o(remote_req_core)
     ,.remote_req_v_o(remote_req_v)
-    ,.remote_req_credit_i(remote_req_credit)
+    ,.remote_req_credit_i(remote_req_credit | dma_credit_give_back_lo)
 
     ,.icache_v_i(icache_v_lo)
     ,.icache_pc_i(icache_pc_lo)
@@ -446,7 +463,7 @@ module bsg_manycore_proc_vanilla
     ,.remote_dmem_addr_i(remote_dmem_core_addr_lo)
     ,.remote_dmem_data_i(remote_dmem_core_data_lo)
     ,.remote_dmem_mask_i(remote_dmem_core_mask_lo)
-    ,.remote_dmem_data_o(remote_dmem_data_li) // unmodified
+    ,.remote_dmem_data_o(remote_dmem_core_data_li)
     ,.remote_dmem_yumi_o(remote_dmem_core_yumi_li)
 
     ,.float_remote_load_resp_rd_i(float_remote_load_resp_rd_lo)
@@ -457,7 +474,7 @@ module bsg_manycore_proc_vanilla
 
     ,.int_remote_load_resp_rd_i(int_remote_load_resp_rd_lo)
     ,.int_remote_load_resp_data_i(int_remote_load_resp_data_lo)
-    ,.int_remote_load_resp_v_i(int_remote_load_resp_v_lo)
+    ,.int_remote_load_resp_v_i(int_remote_load_resp_core_v_lo)
     ,.int_remote_load_resp_force_i(int_remote_load_resp_force_lo)
     ,.int_remote_load_resp_yumi_o(int_remote_load_resp_yumi_li)
 

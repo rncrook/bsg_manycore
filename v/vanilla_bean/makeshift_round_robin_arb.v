@@ -1,8 +1,8 @@
 
 `include "bsg_manycore_defines.vh"
 
-module makeshift_round_robin_arb
-(
+module makeshift_round_robin_arb # (
+) (
     input clk_i,
     input reset_i,
 

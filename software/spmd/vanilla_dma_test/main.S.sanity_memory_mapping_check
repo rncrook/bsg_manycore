@@ -87,57 +87,36 @@ write_loop:
   addi t0, t0, 4
   bne t1, t2, write_loop
 
-li t0, 0
-li t1, 0xDEADCAFE
-sw t1, 0(t0)
-
-
 // test write to DMA engine
 // ------------------------
 
-// write to dma control registers
-//program_dma_regs:
-//li t1, 0x0101000C    // remote_tile_X, remote_tile_Y, remote_dmem_addr
-//li t2, 64            // num_bytes
-//li t3, 0x0ABC00A0   //0x0ABC00A5
-li t4, 4096          // base tile-memory map offset
+// write to on-tile local address
+li t0, 1
+li t1, 4096
+sw t0, 0(t1)
 
-li t0, 0             // local dmem addr
-sw t0, 0(t4)
-li t0, 0x0ABC00A5 // wb_addr: ABC, match_id:A, {push_not_pull,1'b0, go}:3'b101
-sw t0, 12(t4)
+// write to an address in dmem
+la t1, dram_arr
+fsw f0, 0(t1)
 
-// write to an address in dmem and read it back (make sure this interface still works)
-//la t4, dram_arr
-//li x0, 0xDEADCAFE
-//fcvt.s.w f0, x0
-//fsw f0, 0(t4)
-//flw f1, 0(t4)
 
-la t4, dram_arr
-li t0, 0xBEEFFADE
-sw t0, 0(t4)
-lw t1, 0(t4)
+
+
+
 
 
 // ------------------------
 
 // read from DMEM
-li t0, 4092
+li t0, 0
 li t1, 0
 li t2, N
 read_loop:
   lw t3, 0(t0)
-  //bne t3, t1, fail
+  bne t3, t1, fail
   addi t1, t1, 1
-  addi t0, t0, -4
+  addi t0, t0, 4
   bne t1, t2, read_loop
-
-//li t1, 0
-//li t2, 30
-//wait_for_dma_loop:
-//  addi t1, t1, 1
-//  bne t1, t2, wait_for_dma_loop
 
 
 pass:
