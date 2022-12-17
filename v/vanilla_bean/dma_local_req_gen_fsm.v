@@ -103,6 +103,11 @@ module dma_local_req_gen_fsm
                 out_data_v_n     = '0;
                 out_data_w_n     = '0;
 
+                // keep this here, this invalidates the wb enqueue into the dmem_queue,
+                // this fsm could probably generate a more robust "invalidate to remote fsm"
+                // signal
+                all_local_req_sent_d = '0;
+
                 if (start_local_req_i) begin
                     if(push_not_pull_i) begin
                         state_n = BUSY;
@@ -126,14 +131,17 @@ module dma_local_req_gen_fsm
                     out_data_w_n     = '0; //~push_not_pull_i;
                     out_data_addr_n  = (local_ptr_i >> 2); // when yumi'd, load next address (current pointer) in
                     out_data_mask_n  = '1;
+
+                    if (local_ptr_i - local_dmem_base_i >= num_bytes_i) begin
+                        state_n              = WAIT;
+                        out_data_w_n         = '0;
+                        out_data_v_n         = '0;
+                        incr_local_ptr_o     = '0;
+                        all_local_req_sent_d = '1;
+                    end
+
                 end
 
-                if (local_ptr_i - local_dmem_base_i >= num_bytes_i) begin
-                    state_n              = WAIT;
-                    out_data_w_n         = '0;
-                    out_data_v_n         = '0;
-                    all_local_req_sent_d = '1;
-                end
             end
 
             PULL: begin
@@ -142,7 +150,7 @@ module dma_local_req_gen_fsm
                 end
 
                 // unless... if there is new data, write it to registers and validate it
-                if (in_data_v_i) begin
+                if (in_data_v_i & ((out_data_yumi_i & out_data_v_r) | ~out_data_v_r)) begin
                     incr_local_ptr_o = '1;
                     out_data_addr_n = (local_ptr_i >> 2);
                     out_data_w_n = '1;
@@ -185,7 +193,6 @@ module dma_local_req_gen_fsm
                     state_n = IDLE;
                     out_data_v_n = '0;
                     out_data_w_n = '0;
-                    all_local_req_sent_d = '0;
                 end
             end
         endcase

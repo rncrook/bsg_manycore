@@ -1,11 +1,14 @@
 
-// DMA Pull while Core polls WB address
+// brief description: dma engine copies lower half of local dmem into dram, then copies back
+// that dram buffer into the upper half of local dmem
 // --------------------------------------------------
 // - initialize int and floating point register file
 // - write sequence to dmem (initialize dmem)
 // - initialize DMA Push, from dmem to dram
-// - core polls writeback address (lw t0, 0(wb_address)), waits until a 1 is set
-// - core reads dram starting at address into floating-point registers (just 16 32-bit words for this test)
+// - poll writeback
+// - initialize DMA pull, copy dram buffer into upper half of local dmem
+// - poll writeback
+// - transaction finished
 
 #include "bsg_manycore_arch.h"
 #include "bsg_manycore_asm.h"
@@ -115,19 +118,14 @@ sw t0, 12(t4)
 //// poll wb_address
 li t0, 0xabc
 li t1, 0
-sw t1, 0(t0) // clear out write pointer address
+sw t1, 0(t0) // clear out write pointer address, otherwise 'X/uninitialized data is read out, breaking the sim
 li t1, 1
 
 writeback_poll_1:
   lw t2, 0(t0)
-  //addi t3, t3, 0
-  //addi t3, t3, 0
-  //addi t3, t3, 0
-  //addi t3, t3, 0
   bne t2, t1, writeback_poll_1
 
 // clear the writeback address
-
 
 
 // initiate a dma pull from dram, read from near the middle of dram_arr
@@ -146,7 +144,7 @@ sw t0, 12(t4)
 // poll wb_address
 li t0, 0xdef
 li t1, 0
-sw t1, 0(t0) // clear out write pointer address
+sw t1, 0(t0) // clear out write pointer address, otherwise 'X/uninitialized data is read out, breaking the sim
 li t1, 1
 
 writeback_poll_2:

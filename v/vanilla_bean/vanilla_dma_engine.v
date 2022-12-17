@@ -328,7 +328,8 @@ module vanilla_dma_engine
           .clk_i (clk_i)
         , .reset_i (reset_i)
         // dmem queue is not used during pulls
-        , .data_i (local_req_gen_yumi_li & ~all_local_req_sent_lo & push_not_pull_r)
+        , .data_i (local_req_gen_yumi_li & ~local_req_gen_w_lo & local_req_gen_v_lo
+                   & ~all_local_req_sent_lo & push_not_pull_r) // some of these signals are probably redundant
         , .data_o (valid_dmem_dma_data)
     );
 
