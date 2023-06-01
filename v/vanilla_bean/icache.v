@@ -1,7 +1,7 @@
 /**
  *  icache.v
  *
- *  Instruction cache for manycore. 
+ *  Instruction cache for manycore.
  *
  *  05/11/2018, shawnless.xie@gmail.com
  *
@@ -44,6 +44,36 @@ module icache
     , output icache_miss_o
     , output icache_flush_r_o
     , output logic branch_predicted_taken_o
+
+
+    // Background Thread read interface
+
+    // ctrl signal
+    , input bkg_v_i
+    // no flush_i
+    // no w_i
+    // read_pc_plus4_i
+
+
+    // no icache write interface for bkg thread
+
+    // icache read
+    , input bkg_read_pc_plus4_i 
+    , input  [pc_width_lp-1:0] bkg_pc_i
+    , output [pc_width_lp-1:0] bkg_pc_r_o
+    , output [RV32_instr_width_gp-1:0] bkg_instr_o
+    , output [pc_width_lp-1:0] bkg_pred_or_jump_addr_o
+    , output bkg_branch_predicted_taken_o
+    // no jalr_prediction   (bkg code will not support indirect jumps)
+    // no icache_miss_o     (we'll simply not miss when reading)
+    // no icache_flush_r_o  (deal with later)
+
+    , output bkg_instr_v_o // true if bkg_instr_o to IMEM[bkg_pc_r_o], false otherwise.
+                         // qualifies bkg_instr_o, bkg_pred_or_jump_addr_o,  and
+                         // bkg_branch_predicted_taken_o
+
+    , output bkg_icache_line_v_r_o // true if bkg_thread 'owns' icache line
+
   );
 
   // localparam
@@ -51,7 +81,7 @@ module icache
   localparam branch_pc_low_width_lp = (RV32_Bimm_width_gp+1);
   localparam jal_pc_low_width_lp    = (RV32_Jimm_width_gp+1);
 
-  localparam branch_pc_high_width_lp = (pc_width_lp+2) - branch_pc_low_width_lp; 
+  localparam branch_pc_high_width_lp = (pc_width_lp+2) - branch_pc_low_width_lp;
   localparam jal_pc_high_width_lp    = (pc_width_lp+2) - jal_pc_low_width_lp;
 
   localparam icache_format_width_lp = `icache_format_width(icache_tag_width_p, icache_block_size_in_words_p);
@@ -66,12 +96,12 @@ module icache
   logic [icache_addr_width_lp-1:0] w_addr;
   logic [icache_block_offset_width_lp-1:0] w_block_offset;
   assign {w_tag, w_addr, w_block_offset} = w_pc_i;
-  
 
-  // Instantiate icache memory 
+
+  // Instantiate icache memory
   //
   logic v_li;
-  icache_format_s icache_data_li, icache_data_lo;
+  icache_format_s icache_data_li, icache_data_lo, bkg_backup_line_r, bkg_icache_data_lo;
   logic [icache_addr_width_lp-1:0] icache_addr_li;
 
   bsg_mem_1rw_sync #(
@@ -81,16 +111,58 @@ module icache
   ) imem_0 (
     .clk_i(clk_i)
     ,.reset_i(reset_i)
-    ,.v_i(v_li)
-    ,.w_i(w_i)
-    ,.addr_i(icache_addr_li)
+    ,.v_i(v_li) // multiplex between main and background
+    ,.w_i(w_i) 
+    ,.addr_i(icache_addr_li) // multiplex between pc_i and bkg_pc_i
     ,.data_i(icache_data_li)
     ,.data_o(icache_data_lo)
   );
 
-  assign icache_addr_li = w_i
-    ? w_addr
-    : pc_i[icache_block_offset_width_lp+:icache_addr_width_lp];
+  assign icache_addr_li = 
+      w_i ? w_addr : 
+      v_i ? pc_i[icache_block_offset_width_lp+:icache_addr_width_lp] : 
+            bkg_pc_i[icache_block_offset_width_lp+:icache_addr_width_lp];
+
+
+
+  logic bkg_backup_line_v_r;
+  logic bkg_icache_line_v_r;
+
+  wire bkg_read_icache  = v_li & ~w_i & ~v_i & bkg_v_i;
+  wire main_read_icache = v_li & ~w_i & v_i;
+  wire main_write_icache = v_li & w_i;
+
+  // Background Cache Line save logic
+
+
+
+  always_ff @(posedge clk_i) begin
+    if (reset_i) begin
+      bkg_backup_line_r    <= '0;
+      bkg_backup_line_v_r  <= 1'b0; // 'icache_data_lo', on reset, does not correspond to bkg
+      bkg_icache_line_v_r  <= 1'b0;
+    end else begin
+      if (bkg_read_icache) begin
+        bkg_backup_line_v_r <= 1'b0; // backup line content invalid, cache line now lives in 'icache_data_lo'
+        bkg_icache_line_v_r <= 1'b1;
+      end
+
+      if (main_read_icache) begin
+        // if main thread performs a read and cache line lives in 'icache_data_lo',
+        // cache line is backed up to the line buffer
+        bkg_icache_line_v_r <= 1'b0; // bkg no longer owns 'icache_data_lo'
+        if (bkg_icache_line_v_r) begin
+          bkg_backup_line_v_r <= 1'b1; // save to line buffer
+          bkg_backup_line_r   <= icache_data_lo;
+        end
+      end
+    end
+  end
+
+
+  wire bkg_instr_v = bkg_backup_line_v_r | bkg_icache_line_v_r; // bkg instruc in either line buffer
+
+
 
 
   //  Pre-compute the lower part of the jump address for JAL and BRANCH
@@ -105,23 +177,23 @@ module icache
   assign w_instr = w_instr_i;
   wire write_branch_instr = w_instr.op ==? `RV32_BRANCH;
   wire write_jal_instr    = w_instr.op ==? `RV32_JAL_OP;
-  
+
   // BYTE address computation
   wire [branch_pc_low_width_lp-1:0] branch_imm_val = `RV32_Bimm_13extract(w_instr);
-  wire [branch_pc_low_width_lp-1:0] branch_pc_val = branch_pc_low_width_lp'({w_pc_i, 2'b0}); 
-  
+  wire [branch_pc_low_width_lp-1:0] branch_pc_val = branch_pc_low_width_lp'({w_pc_i, 2'b0});
+
   wire [jal_pc_low_width_lp-1:0] jal_imm_val = `RV32_Jimm_21extract(w_instr);
-  wire [jal_pc_low_width_lp-1:0] jal_pc_val = jal_pc_low_width_lp'({w_pc_i, 2'b0}); 
-  
+  wire [jal_pc_low_width_lp-1:0] jal_pc_val = jal_pc_low_width_lp'({w_pc_i, 2'b0});
+
   logic [branch_pc_low_width_lp-1:0] branch_pc_lower_res;
   logic branch_pc_lower_cout;
   logic [jal_pc_low_width_lp-1:0] jal_pc_lower_res;
   logic jal_pc_lower_cout;
-  
+
   assign {branch_pc_lower_cout, branch_pc_lower_res} = {1'b0, branch_imm_val} + {1'b0, branch_pc_val};
   assign {jal_pc_lower_cout,    jal_pc_lower_res   } = {1'b0, jal_imm_val}    + {1'b0, jal_pc_val   };
-  
-  
+
+
   // Inject the 2-BYTE (half) address, the LSB is ignored.
   wire [RV32_instr_width_gp-1:0] injected_instr = write_branch_instr
     ? `RV32_Bimm_12inject1(w_instr, branch_pc_lower_res)
@@ -130,7 +202,7 @@ module icache
       : w_instr);
 
   wire imm_sign = write_branch_instr
-    ? branch_imm_val[RV32_Bimm_width_gp] 
+    ? branch_imm_val[RV32_Bimm_width_gp]
     : jal_imm_val[RV32_Jimm_width_gp];
 
   wire pc_lower_cout = write_branch_instr
@@ -194,7 +266,9 @@ module icache
   // synopsys translate_on
 
   // Program counter
-  logic [pc_width_lp-1:0] pc_r; 
+  logic [pc_width_lp-1:0] pc_r, bkg_pc_r;
+  logic [pc_width_lp-1:0] pc_r_mux;
+
   logic icache_flush_r;
   // Since imem has one cycle delay and we send next cycle's address, pc_n,
   // if the PC is not written, the instruction must not change.
@@ -202,6 +276,7 @@ module icache
   always_ff @ (posedge clk_i) begin
     if (reset_i) begin
       pc_r <= '0;
+      bkg_pc_r <= `BKG_THREAD_JUMP_ADDR;
       icache_flush_r <= 1'b0;
     end
     else begin
@@ -210,7 +285,10 @@ module icache
         pc_r <= pc_i;
         icache_flush_r <= 1'b0;
       end
-      else begin
+      else if (bkg_v_i & ~w_i) begin
+        bkg_pc_r       <= bkg_pc_i;
+        icache_flush_r <= 1'b0;
+      end else begin
         icache_flush_r <= flush_i;
       end
     end
@@ -220,11 +298,12 @@ module icache
 
 
   // Energy-saving logic
-  // - Don't read the icache if the current pc is not at the last word of the block, and 
+  // - Don't read the icache if the current pc is not at the last word of the block, and
   //   there is a hint from the next-pc logic that it is reading pc+4 next (no branch or jump).
-  assign v_li = w_i
-    ? write_en_icache
-    : (v_i & ((&pc_r[0+:icache_block_offset_width_lp]) | ~read_pc_plus4_i));
+  assign v_li = w_i ? write_en_icache
+              : v_i ? (v_i & ((&pc_r[0+:icache_block_offset_width_lp]) | ~read_pc_plus4_i | bkg_icache_line_v_r))
+              :       (bkg_v_i & (&bkg_pc_r[0+:icache_block_offset_width_lp] | ~bkg_read_pc_plus4_i | ~bkg_instr_v));
+
 
 
   // Merge the PC lower part and high part
@@ -233,8 +312,8 @@ module icache
   assign instr_out = icache_data_lo.instr[pc_r[0+:icache_block_offset_width_lp]];
   wire lower_sign_out = icache_data_lo.lower_sign[pc_r[0+:icache_block_offset_width_lp]];
   wire lower_cout_out = icache_data_lo.lower_cout[pc_r[0+:icache_block_offset_width_lp]];
-  wire sel_pc    = ~(lower_sign_out ^ lower_cout_out); 
-  wire sel_pc_p1 = (~lower_sign_out) & lower_cout_out; 
+  wire sel_pc    = ~(lower_sign_out ^ lower_cout_out);
+  wire sel_pc_p1 = (~lower_sign_out) & lower_cout_out;
 
   logic [branch_pc_high_width_lp-1:0] branch_pc_high;
   logic [jal_pc_high_width_lp-1:0] jal_pc_high;
@@ -254,10 +333,10 @@ module icache
   // -------------------------------------------------------------
   // pc_lower_sign  pc_lower_cout  | pc_high-1  pc_high  pc_high+1
   // ------------------------------+------------------------------
-  //   0              0            |            1                   
+  //   0              0            |            1
   //   0              1            |                     1
-  //   1              0            | 1                                     
-  //   1              1            |            1 
+  //   1              0            | 1
+  //   1              1            |            1
   // ------------------------------+------------------------------
   //
   always_comb begin
@@ -281,7 +360,7 @@ module icache
   // these are bytes address
   logic [pc_width_lp+2-1:0] jal_pc;
   logic [pc_width_lp+2-1:0] branch_pc;
-   
+
   assign branch_pc = {branch_pc_high_out, `RV32_Bimm_13extract(instr_out)};
   assign jal_pc = {jal_pc_high_out, `RV32_Jimm_21extract(instr_out)};
 
@@ -298,11 +377,73 @@ module icache
 
   // the icache miss logic
   assign icache_miss_o = icache_data_lo.tag != pc_r[icache_block_offset_width_lp+icache_addr_width_lp+:icache_tag_width_p];
- 
+
   // branch imm sign
   assign branch_predicted_taken_o = lower_sign_out;
 
- 
+  assign bkg_icache_data_lo = bkg_backup_line_v_r ? bkg_backup_line_r : icache_data_lo;
+
+  // Background duplicate logic
+  instruction_s bkg_instr_out;
+  assign bkg_instr_out = bkg_icache_data_lo.instr[bkg_pc_r[0+:icache_block_offset_width_lp]];
+  wire bkg_lower_sign_out = bkg_icache_data_lo.lower_sign[bkg_pc_r[0+:icache_block_offset_width_lp]];
+  wire bkg_lower_cout_out = bkg_icache_data_lo.lower_cout[bkg_pc_r[0+:icache_block_offset_width_lp]];
+  wire bkg_sel_pc    = ~(bkg_lower_sign_out ^ bkg_lower_cout_out);
+  wire bkg_sel_pc_p1 = (~bkg_lower_sign_out) & bkg_lower_cout_out;
+
+  logic [branch_pc_high_width_lp-1:0] bkg_branch_pc_high;
+  logic [jal_pc_high_width_lp-1:0] bkg_jal_pc_high;
+
+  assign bkg_branch_pc_high = bkg_pc_r[(branch_pc_low_width_lp-2)+:branch_pc_high_width_lp];
+  assign bkg_jal_pc_high = bkg_pc_r[(jal_pc_low_width_lp-2)+:jal_pc_high_width_lp];
+
+  logic [branch_pc_high_width_lp-1:0] bkg_branch_pc_high_out;
+  logic [jal_pc_high_width_lp-1:0] bkg_jal_pc_high_out;
+
+
+  always_comb begin
+    if (bkg_sel_pc) begin
+      bkg_branch_pc_high_out = bkg_branch_pc_high;
+      bkg_jal_pc_high_out = bkg_jal_pc_high;
+    end
+    else if (bkg_sel_pc_p1) begin
+      bkg_branch_pc_high_out = bkg_branch_pc_high + 1'b1;
+      bkg_jal_pc_high_out = bkg_jal_pc_high + 1'b1;
+    end
+    else begin // sel_pc_n1
+      bkg_branch_pc_high_out = bkg_branch_pc_high - 1'b1;
+      bkg_jal_pc_high_out = bkg_jal_pc_high - 1'b1;
+    end
+  end
+
+  wire bkg_is_jal_instr =  bkg_instr_out.op == `RV32_JAL_OP;
+  wire bkg_is_jalr_instr = bkg_instr_out.op == `RV32_JALR_OP;
+
+  // these are bytes address
+  logic [pc_width_lp+2-1:0] bkg_jal_pc;
+  logic [pc_width_lp+2-1:0] bkg_branch_pc;
+
+  assign bkg_branch_pc = {bkg_branch_pc_high_out, `RV32_Bimm_13extract(bkg_instr_out)};
+  assign bkg_jal_pc = {bkg_jal_pc_high_out, `RV32_Jimm_21extract(bkg_instr_out)};
+
+  // assign outputs.
+  assign bkg_instr_o = bkg_instr_out;
+  assign bkg_pc_r_o = bkg_pc_r;
+
+  // this is word addr.
+  assign bkg_pred_or_jump_addr_o = bkg_is_jal_instr
+    ? bkg_jal_pc[2+:pc_width_lp]
+    : bkg_branch_pc[2+:pc_width_lp];
+
+  // the icache miss logic
+  //assign bkg_icache_miss_o = icache_data_lo.tag != pc_r[icache_block_offset_width_lp+icache_addr_width_lp+:icache_tag_width_p];
+
+  // branch imm sign
+  assign bkg_branch_predicted_taken_o = bkg_lower_sign_out;
+
+  assign bkg_icache_line_v_r_o = bkg_icache_line_v_r;
+  assign bkg_instr_v_o  = bkg_instr_v;
+
 endmodule
 
 `BSG_ABSTRACT_MODULE(icache)

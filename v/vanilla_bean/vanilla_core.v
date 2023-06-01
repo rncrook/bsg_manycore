@@ -15,7 +15,7 @@ module vanilla_core
   import bsg_manycore_addr_pkg::*;
   #(`BSG_INV_PARAM(data_width_p)
     , `BSG_INV_PARAM(dmem_size_p)
-    
+
     , `BSG_INV_PARAM(icache_entries_p)
     , `BSG_INV_PARAM(icache_tag_width_p)
 
@@ -27,7 +27,7 @@ module vanilla_core
     , `BSG_INV_PARAM(barrier_dirs_p)
 
     , `BSG_INV_PARAM(icache_block_size_in_words_p)
-   
+
     , localparam barrier_lg_dirs_lp=`BSG_SAFE_CLOG2(barrier_dirs_p+1)
     , parameter credit_counter_width_p=`BSG_WIDTH(32)
 
@@ -46,7 +46,7 @@ module vanilla_core
   )
   (
     input clk_i
-    // network_reset_i used in icache to reset the icache write counter 
+    // network_reset_i used in icache to reset the icache write counter
     // so that icache can be written by remote packets while the tile is still in freeze reset.
     , input network_reset_i
     , input reset_i
@@ -63,10 +63,10 @@ module vanilla_core
     , input [pc_width_lp-1:0] icache_pc_i
     , input [data_width_p-1:0] icache_instr_i
     , output logic icache_yumi_o
-    
+
     , input ifetch_v_i
     , input [data_width_p-1:0] ifetch_instr_i
-  
+
     , input remote_dmem_v_i
     , input remote_dmem_w_i
     , input [dmem_addr_width_lp-1:0] remote_dmem_addr_i
@@ -95,7 +95,7 @@ module vanilla_core
     , output logic remote_interrupt_pending_bit_o
 
     // remaining credits
-    , input [credit_counter_width_p-1:0] out_credits_used_i    
+    , input [credit_counter_width_p-1:0] out_credits_used_i
 
     // barrier interface
     , input barrier_data_i
@@ -106,7 +106,7 @@ module vanilla_core
     // pod csr coord.
     , output [pod_x_cord_width_p-1:0] cfg_pod_x_o
     , output [pod_y_cord_width_p-1:0] cfg_pod_y_o
-   
+
     // For debugging + reset
     , input [x_cord_width_p-1:0] global_x_i
     , input [y_cord_width_p-1:0] global_y_i
@@ -120,7 +120,7 @@ module vanilla_core
     .clk_i(clk_i)
     ,.data_i(reset_i)
     ,.data_o(reset_r)
-  );  
+  );
 
   wire reset_down = reset_r & ~reset_i;
 
@@ -130,7 +130,13 @@ module vanilla_core
   // data signals are not reset to zero.
   logic id_en, exe_en, mem_ctrl_en, mem_data_en,
         fp_exe_ctrl_en, fp_exe_data_en, flw_wb_ctrl_en, flw_wb_data_en;
+
+
+  logic bkg_id_en;
+
   id_signals_s id_r, id_n;
+  id_signals_s bkg_id_r, bkg_id_n;
+
   exe_signals_s exe_r, exe_n;
   mem_ctrl_signals_s mem_ctrl_r, mem_ctrl_n;
   mem_data_signals_s mem_data_r, mem_data_n;
@@ -144,24 +150,29 @@ module vanilla_core
   // icache
   //
   localparam lg_icache_block_size_in_words_lp = `BSG_SAFE_CLOG2(icache_block_size_in_words_p);
-  logic icache_v_li;
+  logic icache_v_li, bkg_icache_v_li;
   logic icache_w_li;
-  logic icache_read_pc_plus4_li;
+  logic icache_read_pc_plus4_li, bkg_icache_read_pc_plus4_li; 
 
   logic [pc_width_lp-1:0] icache_w_pc;
   logic [data_width_p-1:0] icache_winstr;
 
   logic [pc_width_lp-1:0] pc_n, pc_r;
-  instruction_s instruction;
+  logic [pc_width_lp-1:0] bkg_pc_n, bkg_pc_r;
+  instruction_s instruction, bkg_instruction;
   logic icache_miss;
   logic icache_flush;
   logic icache_flush_r_lo;
-  logic icache_branch_predicted_taken_lo;
+  logic icache_branch_predicted_taken_lo,
+        bkg_icache_branch_predicted_taken_lo;
 
-  logic [pc_width_lp-1:0] jalr_prediction; 
-  logic [pc_width_lp-1:0] pred_or_jump_addr; 
- 
- 
+  logic [pc_width_lp-1:0] jalr_prediction;
+  logic [pc_width_lp-1:0] pred_or_jump_addr, bkg_pred_or_jump_addr;
+
+  logic bkg_instr_v;
+  logic bkg_icache_line_v_r;
+
+
   icache #(
     .icache_tag_width_p(icache_tag_width_p)
     ,.icache_entries_p(icache_entries_p)
@@ -170,7 +181,7 @@ module vanilla_core
     .clk_i(clk_i)
     ,.network_reset_i(network_reset_i)
     ,.reset_i(reset_i)
-   
+
     ,.v_i(icache_v_li)
     ,.w_i(icache_w_li)
     ,.flush_i(icache_flush)
@@ -188,9 +199,26 @@ module vanilla_core
     ,.icache_miss_o(icache_miss)
     ,.icache_flush_r_o(icache_flush_r_lo)
     ,.branch_predicted_taken_o(icache_branch_predicted_taken_lo)
+
+    // Background Thread read interface
+
+    // bkg control
+    , .bkg_v_i(bkg_icache_v_li)
+
+
+    // icache read
+    , .bkg_read_pc_plus4_i(bkg_icache_read_pc_plus4_li)
+    , .bkg_pc_i(bkg_pc_n)
+    , .bkg_pc_r_o(bkg_pc_r)
+    , .bkg_instr_o(bkg_instruction)
+    , .bkg_pred_or_jump_addr_o(bkg_pred_or_jump_addr)
+    , .bkg_branch_predicted_taken_o(bkg_icache_branch_predicted_taken_lo)
+    , .bkg_instr_v_o(bkg_instr_v)
+    , .bkg_icache_line_v_r_o(bkg_icache_line_v_r)
   );
 
   wire [pc_width_lp-1:0] pc_plus4 = pc_r + 1'b1;
+  wire [pc_width_lp-1:0] bkg_pc_plus4 = bkg_pc_r + 1'b1;
 
   // ifetch counter
   logic [lg_icache_block_size_in_words_lp-1:0] ifetch_count_r;
@@ -214,14 +242,23 @@ module vanilla_core
 
   // instruction decode
   //
-  decode_s decode;
+  decode_s decode, bkg_decode;
   fp_decode_s fp_decode;
 
   cl_decode decode0 (
     .instruction_i(instruction)
     ,.decode_o(decode)
     ,.fp_decode_o(fp_decode)
-  ); 
+  );
+
+  cl_decode decode1 (
+    .instruction_i(bkg_instruction)
+    ,.decode_o(bkg_decode)
+    ,.fp_decode_o()
+  );
+
+
+
 
 
   //////////////////////////////
@@ -239,13 +276,23 @@ module vanilla_core
     ,.data_i(id_n)
     ,.data_o(id_r)
   );
-  
+
+  bsg_dff_reset_en #(
+    .width_p($bits(id_signals_s))
+  ) bkg_id_pipeline (
+    .clk_i(clk_i)
+    ,.reset_i(reset_i)
+    ,.en_i(bkg_id_en)
+    ,.data_i(bkg_id_n)
+    ,.data_o(bkg_id_r)
+  );
+
   // int regfile
   //
   logic int_rf_wen;
   logic [reg_addr_width_lp-1:0] int_rf_waddr;
   logic [data_width_p-1:0] int_rf_wdata;
- 
+
   logic [1:0] int_rf_read;
   logic [1:0][data_width_p-1:0] int_rf_rdata;
 
@@ -266,7 +313,7 @@ module vanilla_core
     ,.r_addr_i({instruction.rs2, instruction.rs1})
     ,.r_data_o(int_rf_rdata)
   );
-  
+
 
   //  int scoreboard
   //
@@ -284,7 +331,7 @@ module vanilla_core
   ) int_sb (
     .clk_i(clk_i)
     ,.reset_i(reset_i)
-  
+
     ,.src_id_i({id_r.instruction.rs2, id_r.instruction.rs1})
     ,.dest_id_i(id_r.instruction.rd)
 
@@ -306,7 +353,7 @@ module vanilla_core
   logic float_rf_wen;
   logic [reg_addr_width_lp-1:0] float_rf_waddr;
   logic [fpu_recoded_data_width_gp-1:0] float_rf_wdata;
- 
+
   logic [2:0] float_rf_read;
   logic [2:0][fpu_recoded_data_width_gp-1:0] float_rf_rdata;
 
@@ -345,7 +392,7 @@ module vanilla_core
   ) float_sb (
     .clk_i(clk_i)
     ,.reset_i(reset_i)
-  
+
     ,.src_id_i({id_r.instruction[31:27], id_r.instruction.rs2, id_r.instruction.rs1})
     ,.dest_id_i(id_r.instruction.rd)
 
@@ -377,7 +424,7 @@ module vanilla_core
   fcsr fcsr0 (
     .clk_i(clk_i)
     ,.reset_i(reset_i)
-    
+
     ,.v_i(fcsr_v_li)
     ,.funct3_i(fcsr_funct3_li)
     ,.rs1_i(fcsr_rs1_li)
@@ -392,7 +439,7 @@ module vanilla_core
     ,.frm_o(frm_r)
   );
 
-  
+
   // MCSR
   logic mcsr_we_li;
   logic [data_width_p-1:0] mcsr_data_li;
@@ -408,7 +455,7 @@ module vanilla_core
   csr_interrupt_vector_s mie_r;
   logic [pc_width_lp-1:0] mepc_r;
   logic [credit_counter_width_p-1:0] credit_limit_r;
-   
+
   logic mcsr_barsend_li;
 
   mcsr #(
@@ -461,7 +508,7 @@ module vanilla_core
 		 , cfg_pod_x_o);
      end
   `endif
-   
+
   // synopsys translate_off
   wire [pc_width_lp+2-1:0] mepc_00 = {mepc_r, 2'b00};
   // synopsys translate_on
@@ -516,7 +563,7 @@ module vanilla_core
 
   // FP_EXE forwarding muxes
   //
-  
+
   // select between rs1 and frs1
   logic [fpu_recoded_data_width_gp-1:0] frs1_select_val;
   logic select_rs1_to_fp_exe;
@@ -529,7 +576,7 @@ module vanilla_core
     ,.sel_i(select_rs1_to_fp_exe)
     ,.data_o(frs1_select_val)
   );
-  
+
   logic frs1_forward_v;
   logic frs2_forward_v;
   logic frs3_forward_v;
@@ -569,7 +616,7 @@ module vanilla_core
   logic [data_width_p-1:0] fsw_data;
   recFNToFN #(
     .expWidth(fpu_recoded_exp_width_gp)
-    ,.sigWidth(fpu_recoded_sig_width_gp) 
+    ,.sigWidth(fpu_recoded_sig_width_gp)
   ) frs2_to_fn (
     .in(float_rf_rdata[1])
     ,.out(fsw_data)
@@ -592,7 +639,7 @@ module vanilla_core
     ,.sel_i(rs1_forward_sel)
     ,.data_o(rs1_forward_val)
   );
-  
+
   bsg_mux #(
     .els_p(3)
     ,.width_p(data_width_p)
@@ -608,7 +655,7 @@ module vanilla_core
   assign rs1_val_to_exe = rs1_forward_v
     ? rs1_forward_val
     : int_rf_rdata[0];
-  
+
   assign rs2_val_to_exe = id_r.decode.read_frs2
     ? fsw_data
     : (rs2_forward_v
@@ -668,7 +715,7 @@ module vanilla_core
     ,.en_i(jalr_prediction_write_en)
     ,.data_i(exe_r.pc_plus4[2+:pc_width_lp])
     ,.data_o(jalr_prediction)
-  ); 
+  );
 
   // alu/csr result mux
   wire [data_width_p-1:0] alu_or_csr_result = exe_r.decode.is_csr_op
@@ -695,13 +742,13 @@ module vanilla_core
     ,.rd_i(exe_r.instruction.rd)
     ,.op_i(exe_r.decode.idiv_op)
     ,.ready_and_o(idiv_ready_and_lo)
-  
+
     ,.v_o(idiv_v_lo)
     ,.rd_o(idiv_rd_lo)
     ,.result_o(idiv_result_lo)
     ,.yumi_i(idiv_yumi_li)
   );
-  
+
 
   // LSU
   //
@@ -748,11 +795,11 @@ module vanilla_core
   // this keeps track of what should be the next PC of the instruction that was last in EXE (i.e. latest committed instruction).
   // this is updated when a valid instruction moves out of EXE (or FP_EXE)
   // For non-control instructions, this is pc+4.
-  // For control instructions, this is the branch/jump target. 
+  // For control instructions, this is the branch/jump target.
   // This is used for setting mepc_r, when the interrupt is taken.
   // this is different from pc_n in IF, which could have mispredicted pc.
   logic npc_write_en;
-  logic [pc_width_lp-1:0] npc_n, npc_r; 
+  logic [pc_width_lp-1:0] npc_n, npc_r;
 
   bsg_dff_en_bypass #(
     .width_p(pc_width_lp)
@@ -773,9 +820,9 @@ module vanilla_core
   // 1 = backward branch (always predict 'taken')
   // 'branch underpredict' means that branch was predicted to be "not taken", but actually needs to be taken.
   // 'branch overpredict' means that branch was predicted to be "taken", but actually needs to be not taken.
-  // In either cases, the frontend should be flushed. 
+  // In either cases, the frontend should be flushed.
   wire branch_under_predict = (alu_jump_now & ~exe_r.branch_predicted_taken);
-  wire branch_over_predict  = (~alu_jump_now & exe_r.branch_predicted_taken); 
+  wire branch_over_predict  = (~alu_jump_now & exe_r.branch_predicted_taken);
   wire branch_mispredict = (branch_under_predict | branch_over_predict) & exe_r.decode.is_branch_op;
   wire jalr_mispredict = exe_r.decode.is_jalr_op & (alu_jalr_addr != exe_r.pred_or_jump_addr[2+:pc_width_lp]);
 
@@ -867,12 +914,12 @@ module vanilla_core
     ,.fp_result_o(fpu_float_result_lo)
     ,.fp_fflags_o(fpu_float_fflags_lo)
     ,.fp_rd_o(fpu_float_rd_lo)
-  
+
     ,.fpu1_v_r_o(fpu1_v_r)
     ,.fpu1_rd_o(fpu1_rd_r)
   );
- 
-  // FPU INT - computes float op that writes back to INT regfile. 
+
+  // FPU INT - computes float op that writes back to INT regfile.
   logic [data_width_p-1:0] fpu_int_result_lo;
   fflags_s fpu_int_fflags_lo;
 
@@ -915,7 +962,7 @@ module vanilla_core
   );
 
 
-  
+
 
   //////////////////////////////
   //                          //
@@ -1000,7 +1047,7 @@ module vanilla_core
     ,.byte_load_i(mem_ctrl_r.is_byte_op)
     ,.hex_load_i(mem_ctrl_r.is_hex_op)
     ,.part_sel_i(mem_ctrl_r.byte_sel)
-    ,.load_data_o(local_load_packed_data) 
+    ,.load_data_o(local_load_packed_data)
   );
 
   // load reservation registers
@@ -1116,7 +1163,7 @@ module vanilla_core
 
   // ID stall signals
   logic stall_depend_long_op;
-  logic stall_depend_local_load;
+  logic stall_depend_local_load, bkg_stall_depend_local_load;
   logic stall_depend_imul;
   logic stall_bypass;
   logic stall_lr_aq;
@@ -1133,7 +1180,7 @@ module vanilla_core
   // MEM stall signals
   logic stall_remote_ld_wb;
   logic stall_ifetch_wait;
-  
+
   // FP_WB stall signals
   logic stall_remote_flw_wb;
 
@@ -1152,6 +1199,9 @@ module vanilla_core
     | stall_fcsr
     | stall_barrier;
 
+
+  wire bkg_stall_id = bkg_stall_depend_local_load;
+
   wire stall_all = stall_icache_store
     | stall_remote_ld_wb
     | stall_ifetch_wait
@@ -1162,6 +1212,10 @@ module vanilla_core
   // 1) branch/jalr mispredict
   // 2) mret in EXE
   // 3) interrupt taken
+
+
+  //wire flush = (branch_mispredict & ~exe_is_bkg_instr | jalr_mispredict) | (exe_r.decode.is_mret_op) | interrupt_ready;
+  //wire bkg_flush = branch_mispredict & exe_is_bkg_instr;
   wire flush = (branch_mispredict | jalr_mispredict) | (exe_r.decode.is_mret_op) | interrupt_ready;
   wire icache_miss_in_pipe = id_r.icache_miss | exe_r.icache_miss | mem_ctrl_r.icache_miss | wb_ctrl_r.icache_miss;
 
@@ -1197,6 +1251,9 @@ module vanilla_core
     else if (jalr_mispredict) begin
       pc_n = alu_jalr_addr;
     end
+    else if (bkg_icache_line_v_r) begin
+      pc_n = pc_r; // resume execution at previous squashed line
+    end
     else if (decode.is_branch_op & icache_branch_predicted_taken_lo) begin
       pc_n = pred_or_jump_addr;
     end
@@ -1208,7 +1265,41 @@ module vanilla_core
       pc_n = pc_plus4;
     end
   end
-  
+
+
+  // Next background PC Logic
+  always_comb begin
+    bkg_pc_n = bkg_pc_r;
+    bkg_icache_read_pc_plus4_li = 1'b0;
+
+
+    if (reset_down) begin
+    end
+    else if (bkg_instr_v) begin 
+      // if bkg_instr_v is not valid then bkg_pc_n should only point at
+      // bkg_pc_r (any status info below is invalid), if bkg doesn't own
+      // either line buffer, bkg needs to read in the line buffer at 'bkg_pc_r'
+      // to resume execution
+
+      //if (branch_mispredict) begin // todo: pull this out of 'bkg_instr_v'?
+      //  bkg_pc_n = alu_jump_now
+      //    ? exe_r.pred_or_jump_addr[2+:pc_width_lp]
+      //    : exe_r.pc_plus4[2+:pc_width_lp];
+      //end
+      //else if (bkg_decode.is_branch_op & bkg_icache_branch_predicted_taken_lo) begin
+      //  bkg_pc_n = bkg_pred_or_jump_addr;
+      //end
+      //else 
+      if (bkg_decode.is_jal_op) begin
+        bkg_pc_n = bkg_pred_or_jump_addr;
+      end
+      else begin
+        bkg_icache_read_pc_plus4_li = 1'b1;
+        bkg_pc_n = bkg_pc_plus4;
+      end
+    end
+  end
+
   // debug printing for interrupt and mret
   // synopsys translate_off
 
@@ -1230,8 +1321,8 @@ module vanilla_core
     end
 
 /*    if (jalr_mispredict)
-      $display("[INFO][VCORE] jalr_mispredict. t=%0t, x=%0d, y=%0d, true=%x pred=%x\n", 
-	       $time, global_x_i, global_y_i, 
+      $display("[INFO][VCORE] jalr_mispredict. t=%0t, x=%0d, y=%0d, true=%x pred=%x\n",
+	       $time, global_x_i, global_y_i,
 	       { alu_jalr_addr, 2'b00 },
 	       { exe_r.pred_or_jump_addr[2+:pc_width_lp], 2'b00 }
 	       );
@@ -1249,6 +1340,8 @@ module vanilla_core
   assign icache_v_li = icache_v_i | ifetch_v_i
     | (read_icache & ~reset_i & ~stall_all & ~(stall_id & ~flush));
 
+  assign bkg_icache_v_li = (~reset_i & ~stall_all & stall_id);
+
   assign icache_w_li = icache_v_i | ifetch_v_i;
 
   assign icache_w_pc = ifetch_v_i
@@ -1262,7 +1355,7 @@ module vanilla_core
   assign icache_yumi_o = icache_v_i & ~ifetch_v_i;
 
   assign icache_flush = flush | icache_miss_in_pipe;
-  
+
   assign stall_icache_store = icache_v_i & icache_yumi_o;
 
 
@@ -1287,7 +1380,7 @@ module vanilla_core
       if (reset_down | flush) begin
         id_en = 1'b1;
         id_n = '0;
-      end    
+      end
       else if (stall_id) begin
         id_en = 1'b0;
       end
@@ -1313,6 +1406,48 @@ module vanilla_core
         // common case
         id_en = 1'b1;
       end
+    end
+  end
+
+  // IF->ID for background
+  always_comb begin
+
+    // background common case
+    bkg_id_n = '{
+      pc_plus4: {{(data_width_p-pc_width_lp-2){1'b0}}, bkg_pc_plus4, 2'b0},
+      pred_or_jump_addr: {{(data_width_p-pc_width_lp-2){1'b0}}, bkg_pred_or_jump_addr, 2'b0},
+      instruction: bkg_instruction,
+      decode: bkg_decode,
+      fp_decode: '0,
+      icache_miss: 1'b0,
+      valid: 1'b0, // by default
+      branch_predicted_taken:  bkg_icache_branch_predicted_taken_lo
+    };
+
+    bkg_id_en = 1'b0; // by default, don't write into bkg_id_r pipeline
+
+    if (stall_all) begin // maybe 'stall_all & bkg_id_r.valid'?
+      bkg_id_en = 1'b0; // if stall_all, then both threads must stall
+    end
+    else if(stall_id) begin
+      // if 'stall_id', then 'bkg_id_r' is available to update
+
+
+      //if (bkg_flush) begin // todo: handle these later...
+      //  bkg_id_n = '0;
+      //  bkg_id_en = 1'b1;
+      //end
+      if (bkg_stall_id) begin // unless 'bkg_stall_id' is high, then don't squash ID bkg or issue new instruc to ID bkg
+        bkg_id_en = 1'b0;
+      end else if (bkg_instr_v) begin
+        // no background stall and (stall_id and ~stall-all), ready to issue ID!
+        bkg_id_n.valid = 1'b1;
+        bkg_id_en = 1'b1;
+      end else begin
+        // if stall_id & ~stall_all, then need to invalidate current bkg_id_r instruc since it's been issued to EXE
+        bkg_id_en = 1'b1;
+      end
+
     end
   end
 
@@ -1351,15 +1486,29 @@ module vanilla_core
   wire id_rs1_equal_wb_rd = (id_rs1 == wb_ctrl_r.rd_addr);
   wire id_rs2_equal_wb_rd = (id_rs2 == wb_ctrl_r.rd_addr);
 
+
+  wire [reg_addr_width_lp-1:0] bkg_id_rs1 = bkg_id_r.instruction.rs1;
+  wire [reg_addr_width_lp-1:0] bkg_id_rs2 = bkg_id_r.instruction.rs2;
+  wire [reg_addr_width_lp-1:0] bkg_id_rd  = bkg_id_r.instruction.rd;
+
+  wire bkg_id_rs1_non_zero = bkg_id_rs1 != '0;
+  wire bkg_id_rs2_non_zero = bkg_id_rs2 != '0;
+  wire bkg_id_rd_non_zero   = bkg_id_rd != '0;
+  wire bkg_id_rs1_equal_exe_rd = (bkg_id_rs1 == exe_r.instruction.rd);
+  wire bkg_id_rs2_equal_exe_rd = (bkg_id_rs2 == exe_r.instruction.rd);
+
+
+  // extra control signals for background
+
   // stall_depend_long_op (idiv, fdiv, remote_load, atomic)
-  wire rs1_sb_clear_now = id_r.decode.read_rs1 & (id_rs1 == int_sb_clear_id) & int_sb_clear & id_rs1_non_zero; 
+  wire rs1_sb_clear_now = id_r.decode.read_rs1 & (id_rs1 == int_sb_clear_id) & int_sb_clear & id_rs1_non_zero;
   wire frs2_sb_clear_now = id_r.decode.read_frs2 & (id_rs2 == float_sb_clear_id) & float_sb_clear;
 
   assign stall_depend_long_op = (int_dependency | float_dependency)
     | (id_r.decode.is_fp_op
         ? rs1_sb_clear_now
         : frs2_sb_clear_now);
-  
+
 
   // stall_depend_local_load (lw, flw, lr, lr.aq)
   assign stall_depend_local_load = local_load_in_exe &
@@ -1369,6 +1518,10 @@ module vanilla_core
     |(id_r.decode.read_frs2 & id_rs2_equal_exe_rd & exe_r.decode.write_frd)
     |(id_r.decode.read_frs3 & id_rs3_equal_exe_rd & exe_r.decode.write_frd));
 
+  assign bkg_stall_depend_local_load = local_load_in_exe &
+    ((bkg_id_r.decode.read_rs1  & bkg_id_rs1_equal_exe_rd & exe_r.decode.write_rd & bkg_id_rs1_non_zero)
+    |(bkg_id_r.decode.read_rs2  & bkg_id_rs2_equal_exe_rd & exe_r.decode.write_rd & bkg_id_rs2_non_zero));
+
 
   // stall_depend_imul
   assign stall_depend_imul = exe_r.decode.is_imul_op &
@@ -1377,7 +1530,7 @@ module vanilla_core
 
 
   // stall_bypass
-  wire stall_bypass_fp_frs = 
+  wire stall_bypass_fp_frs =
      (id_r.decode.read_frs1 & id_rs1_equal_fp_exe_rd & fp_exe_ctrl_r.fp_decode.is_fpu_float_op)
     |(id_r.decode.read_frs2 & id_rs2_equal_fp_exe_rd & fp_exe_ctrl_r.fp_decode.is_fpu_float_op)
     |(id_r.decode.read_frs3 & id_rs3_equal_fp_exe_rd & fp_exe_ctrl_r.fp_decode.is_fpu_float_op)
@@ -1394,7 +1547,7 @@ module vanilla_core
     |(id_rs1_equal_exe_rd & exe_r.decode.write_rd)
     |(id_rs1_equal_mem_rd & mem_ctrl_r.write_rd)
     |(id_rs1_equal_wb_rd & wb_ctrl_r.write_rd));
-  
+
 
   wire stall_bypass_int_frs2 = id_r.decode.read_frs2 &
     ((id_rs2_equal_fp_exe_rd & fp_exe_ctrl_r.fp_decode.is_fpu_float_op)
@@ -1402,7 +1555,7 @@ module vanilla_core
     |((id_rs2 == fpu_float_rd_lo) & fpu_float_v_lo)
     |(id_rs2_equal_mem_rd & mem_ctrl_r.write_frd)
     |((id_rs2 == flw_wb_ctrl_r.rd_addr) & flw_wb_ctrl_r.valid));
-    
+
 
   assign stall_bypass = id_r.decode.is_fp_op
     ? (stall_bypass_fp_frs | stall_bypass_fp_rs1)
@@ -1413,7 +1566,7 @@ module vanilla_core
 
   // stall_fence
   assign stall_fence = id_r.decode.is_fence_op & (remote_credit_pending | remote_req_in_exe);
-  
+
   // stall_amo_aq
   assign stall_amo_aq = aq_r & ~aq_clear &
     (id_r.decode.is_load_op
@@ -1444,10 +1597,10 @@ module vanilla_core
       remote_req_counter_r <= (lg_fwd_fifo_els_lp)'(fwd_fifo_els_p);
     else
       remote_req_counter_r <= remote_req_available - memory_op_issued;
-  end 
+  end
 
   assign stall_remote_req = id_remote_req_op & (remote_req_available == '0);
-  
+
   // stall_remote_credit
   logic credit_cout;
   logic [credit_counter_width_p-1:0] credit_sum;
@@ -1543,7 +1696,7 @@ module vanilla_core
 
 
   // FCSR control
-  assign fcsr_v_li = (id_r.decode.is_csr_op) & id_issue; 
+  assign fcsr_v_li = (id_r.decode.is_csr_op) & id_issue;
   assign fcsr_funct3_li = id_r.instruction.funct3;
   assign fcsr_rs1_li = id_r.instruction.rs1;
   assign fcsr_data_li = rs1_val_to_exe[7:0];
@@ -1557,7 +1710,7 @@ module vanilla_core
   assign mcsr_interrupt_entered_li = interrupt_ready & ~stall_all;
   assign mcsr_mret_called_li = exe_r.decode.is_mret_op & ~stall_all;
   assign mcsr_npc_r_li = npc_r;
-  
+
   // barrier control
   assign mcsr_barsend_li = id_r.decode.is_barsend_op & id_issue;
   assign stall_barrier = id_r.decode.is_barrecv_op & (barrier_data_i != barrier_data_o);
@@ -1623,7 +1776,7 @@ module vanilla_core
 
   // int scoreboard set logic
   assign int_sb_score = ~stall_all & (exe_r.decode.is_idiv_op | exe_r.decode.is_amo_op | int_remote_load_in_exe);
-  assign int_sb_score_id = exe_r.instruction.rd;  
+  assign int_sb_score_id = exe_r.instruction.rd;
 
   // exe_result
   assign exe_result = fp_exe_ctrl_r.fp_decode.is_fpu_int_op
@@ -1673,9 +1826,9 @@ module vanilla_core
         fp_exe_data_en = 1'b1;
       end
     end
-  end  
+  end
 
-  // fdiv control 
+  // fdiv control
   assign fdiv_fsqrt_v_li = fdiv_fsqrt_in_fp_exe & ~stall_all;
 
   // FP scoreboard set logic
@@ -1730,7 +1883,7 @@ module vanilla_core
         local_load: 1'b0,
         byte_sel: '0,
         icache_miss: 1'b0
-      };      
+      };
       mem_data_n = '{
         exe_result: fpu_int_result_lo
       };
@@ -1739,9 +1892,9 @@ module vanilla_core
       mem_ctrl_en = 1'b1;
       mem_data_en = 1'b1;
     end
-  end  
+  end
 
- 
+
   // DMEM ctrl logic
   always_comb begin
     if (stall_all) begin
@@ -1778,7 +1931,7 @@ module vanilla_core
   // reservation logic
   // lr creates a reservation on DMEM address.
   // Any store to this address breaks the reservation.
-  // When the reservation is valid, lr.aq stalls until the reservation is broken. 
+  // When the reservation is valid, lr.aq stalls until the reservation is broken.
   assign make_reserve = lsu_reserve_lo & ~stall_all;
   assign break_reserve = reserved_r & (reserved_addr_r == dmem_addr_li) & dmem_v_li & dmem_w_li;
 
@@ -1795,8 +1948,8 @@ module vanilla_core
       : mem_data_r.exe_result);
 
   wire mem_result_valid = imul_v_lo | mem_ctrl_r.write_rd | mem_ctrl_r.write_frd;
- 
- 
+
+
   // MEM -> WB
   always_comb begin
     wb_ctrl_n.write_rd = 1'b0;
@@ -1853,7 +2006,7 @@ module vanilla_core
   end
 
 
-  // WB 
+  // WB
   assign int_rf_wdata = wb_data_r.rf_data;
   assign int_rf_waddr = wb_ctrl_r.rd_addr;
   assign int_rf_wen = wb_ctrl_r.write_rd;
@@ -1876,7 +2029,7 @@ module vanilla_core
     };
   end
 
-  
+
   // FP_WB
   // fcsr exception handling
   // float scoreboard clear logic
@@ -1896,7 +2049,7 @@ module vanilla_core
 
     fcsr_fflags_v_li[1] = 1'b0;
     fcsr_fflags_li[1] = fpu_float_fflags_lo;
-    
+
 
     if (float_remote_load_resp_force_i) begin
       select_remote_flw = 1'b1;
@@ -1913,7 +2066,7 @@ module vanilla_core
       select_remote_flw = 1'b0;
       float_rf_wen = 1'b1;
       float_rf_waddr = flw_wb_ctrl_r.rd_addr;
-      float_rf_wdata = flw_recoded_data; 
+      float_rf_wdata = flw_recoded_data;
     end
     else if (fpu_float_v_lo) begin
       float_rf_wen = 1'b1;

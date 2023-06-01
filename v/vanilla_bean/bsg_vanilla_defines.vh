@@ -3,7 +3,7 @@
 
 /**
  *  bsg_vanilla_defines.vh
- *  
+ *
  *  This file defines the macros
  *  used throughout the vanilla core.
  *
@@ -32,6 +32,7 @@
 
 `define REMOTE_INTERRUPT_JUMP_ADDR  0   // remote interrupt jump addr (word addr)
 `define TRACE_INTERRUPT_JUMP_ADDR   1   // trace interrupt jump addr (word addr)
+`define BKG_THREAD_JUMP_ADDR 0 // (word addr)
 
 // RV32 Opcodes
 `define RV32_LOAD     7'b0000011
@@ -147,7 +148,7 @@
 
 // fcsr CSR addr
 `define RV32_CSR_FFLAGS_ADDR  12'h001
-`define RV32_CSR_FRM_ADDR     12'h002  
+`define RV32_CSR_FRM_ADDR     12'h002
 `define RV32_CSR_FCSR_ADDR    12'h003
 // machine CSR addr
 `define RV32_CSR_MSTATUS_ADDR   12'h300
@@ -155,7 +156,7 @@
 `define RV32_CSR_MIE_ADDR       12'h304
 `define RV32_CSR_MIP_ADDR       12'h344
 `define RV32_CSR_MEPC_ADDR      12'h341
-`define RV32_CSR_CFG_POD_ADDR   12'h360				    
+`define RV32_CSR_CFG_POD_ADDR   12'h360
 
 // machine custom CSR addr
 `define RV32_CSR_CREDIT_LIMIT_ADDR 12'hfc0
@@ -229,7 +230,7 @@
 `define RV32_FCVT_W_S  {`RV32_FCVT_S_F2I_FUN7, 5'b00000, 5'b?????, 3'b???, 5'b?????, `RV32_OP_FP}
 `define RV32_FCVT_WU_S {`RV32_FCVT_S_F2I_FUN7, 5'b00001, 5'b?????, 3'b???, 5'b?????, `RV32_OP_FP}
 
-// move (i->f) 
+// move (i->f)
 `define RV32_FMV_W_X {`RV32_FMV_W_X_FUN7, 5'b0000, 5'b?????, 3'b000, 5'b?????, `RV32_OP_FP}
 
 // move (f->i)
