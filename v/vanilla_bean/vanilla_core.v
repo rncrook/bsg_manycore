@@ -1444,7 +1444,9 @@ module vanilla_core
         bkg_id_n.valid = 1'b1;
         bkg_id_en = 1'b1;
       end else begin
+        // no valid instruction here
         // if stall_id & ~stall_all, then need to invalidate current bkg_id_r instruc since it's been issued to EXE
+        bkg_id_n  = '0;
         bkg_id_en = 1'b1;
       end
 

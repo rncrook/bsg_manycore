@@ -1,0 +1,294 @@
+
+main.riscv:     file format elf32-littleriscv
+
+
+Disassembly of section .text.dram:
+
+00000000 <test_routine>:
+   0:	01f00f13          	li	t5,31
+   4:	01f00f93          	li	t6,31
+   8:	ff9ff06f          	j	0 <test_routine>
+
+0000000c <_start>:
+   c:	00000093          	li	ra,0
+  10:	00000113          	li	sp,0
+  14:	00000193          	li	gp,0
+  18:	00000213          	li	tp,0
+  1c:	00000293          	li	t0,0
+  20:	00000313          	li	t1,0
+  24:	00000393          	li	t2,0
+  28:	00000413          	li	s0,0
+  2c:	00000493          	li	s1,0
+  30:	00000513          	li	a0,0
+  34:	00000593          	li	a1,0
+  38:	00000613          	li	a2,0
+  3c:	00000693          	li	a3,0
+  40:	00000713          	li	a4,0
+  44:	00000793          	li	a5,0
+  48:	00000813          	li	a6,0
+  4c:	00000893          	li	a7,0
+  50:	00000913          	li	s2,0
+  54:	00000993          	li	s3,0
+  58:	00000a13          	li	s4,0
+  5c:	00000a93          	li	s5,0
+  60:	00000b13          	li	s6,0
+  64:	00000b93          	li	s7,0
+  68:	00000c13          	li	s8,0
+  6c:	00000c93          	li	s9,0
+  70:	00000d13          	li	s10,0
+  74:	00000d93          	li	s11,0
+  78:	00000e13          	li	t3,0
+  7c:	00000e93          	li	t4,0
+  80:	00000f13          	li	t5,0
+  84:	00000f93          	li	t6,0
+  88:	d0007053          	fcvt.s.w	ft0,zero
+  8c:	d00070d3          	fcvt.s.w	ft1,zero
+  90:	d0007153          	fcvt.s.w	ft2,zero
+  94:	d00071d3          	fcvt.s.w	ft3,zero
+  98:	d0007253          	fcvt.s.w	ft4,zero
+  9c:	d00072d3          	fcvt.s.w	ft5,zero
+  a0:	d0007353          	fcvt.s.w	ft6,zero
+  a4:	d00073d3          	fcvt.s.w	ft7,zero
+  a8:	d0007453          	fcvt.s.w	fs0,zero
+  ac:	d00074d3          	fcvt.s.w	fs1,zero
+  b0:	d0007553          	fcvt.s.w	fa0,zero
+  b4:	d00075d3          	fcvt.s.w	fa1,zero
+  b8:	d0007653          	fcvt.s.w	fa2,zero
+  bc:	d00076d3          	fcvt.s.w	fa3,zero
+  c0:	d0007753          	fcvt.s.w	fa4,zero
+  c4:	d00077d3          	fcvt.s.w	fa5,zero
+  c8:	d0007853          	fcvt.s.w	fa6,zero
+  cc:	d00078d3          	fcvt.s.w	fa7,zero
+  d0:	d0007953          	fcvt.s.w	fs2,zero
+  d4:	d00079d3          	fcvt.s.w	fs3,zero
+  d8:	d0007a53          	fcvt.s.w	fs4,zero
+  dc:	d0007ad3          	fcvt.s.w	fs5,zero
+  e0:	d0007b53          	fcvt.s.w	fs6,zero
+  e4:	d0007bd3          	fcvt.s.w	fs7,zero
+  e8:	d0007c53          	fcvt.s.w	fs8,zero
+  ec:	d0007cd3          	fcvt.s.w	fs9,zero
+  f0:	d0007d53          	fcvt.s.w	fs10,zero
+  f4:	d0007dd3          	fcvt.s.w	fs11,zero
+  f8:	d0007e53          	fcvt.s.w	ft8,zero
+  fc:	d0007ed3          	fcvt.s.w	ft9,zero
+ 100:	d0007f53          	fcvt.s.w	ft10,zero
+ 104:	d0007fd3          	fcvt.s.w	ft11,zero
+ 108:	00000293          	li	t0,0
+ 10c:	00000313          	li	t1,0
+ 110:	40000393          	li	t2,1024
+
+00000114 <init_loop>:
+ 114:	d0037053          	fcvt.s.w	ft0,t1
+ 118:	00130313          	addi	t1,t1,1
+ 11c:	0002a027          	fsw	ft0,0(t0)
+ 120:	00428293          	addi	t0,t0,4
+ 124:	fe7318e3          	bne	t1,t2,114 <init_loop>
+ 128:	4010f2b7          	lui	t0,0x4010f
+ 12c:	ad428293          	addi	t0,t0,-1324 # 4010ead4 <_bsg_elf_vcache_size+0x400cead4>
+ 130:	00000313          	li	t1,0
+ 134:	0062a023          	sw	t1,0(t0)
+ 138:	00000293          	li	t0,0
+ 13c:	81000317          	auipc	t1,0x81000
+ 140:	ec430313          	addi	t1,t1,-316 # 81000000 <_bsg_dram_end_addr+0xfffff000>
+ 144:	00000393          	li	t2,0
+ 148:	02000e13          	li	t3,32
+
+0000014c <dmem_to_dram_loop>:
+ 14c:	0002a007          	flw	ft0,0(t0)
+ 150:	0042a087          	flw	ft1,4(t0)
+ 154:	0082a107          	flw	ft2,8(t0)
+ 158:	00c2a187          	flw	ft3,12(t0)
+ 15c:	0102a207          	flw	ft4,16(t0)
+ 160:	0142a287          	flw	ft5,20(t0)
+ 164:	0182a307          	flw	ft6,24(t0)
+ 168:	01c2a387          	flw	ft7,28(t0)
+ 16c:	0202a407          	flw	fs0,32(t0)
+ 170:	0242a487          	flw	fs1,36(t0)
+ 174:	0282a507          	flw	fa0,40(t0)
+ 178:	02c2a587          	flw	fa1,44(t0)
+ 17c:	0302a607          	flw	fa2,48(t0)
+ 180:	0342a687          	flw	fa3,52(t0)
+ 184:	0382a707          	flw	fa4,56(t0)
+ 188:	03c2a787          	flw	fa5,60(t0)
+ 18c:	0402a807          	flw	fa6,64(t0)
+ 190:	0442a887          	flw	fa7,68(t0)
+ 194:	0482a907          	flw	fs2,72(t0)
+ 198:	04c2a987          	flw	fs3,76(t0)
+ 19c:	0502aa07          	flw	fs4,80(t0)
+ 1a0:	0542aa87          	flw	fs5,84(t0)
+ 1a4:	0582ab07          	flw	fs6,88(t0)
+ 1a8:	05c2ab87          	flw	fs7,92(t0)
+ 1ac:	0602ac07          	flw	fs8,96(t0)
+ 1b0:	0642ac87          	flw	fs9,100(t0)
+ 1b4:	0682ad07          	flw	fs10,104(t0)
+ 1b8:	06c2ad87          	flw	fs11,108(t0)
+ 1bc:	0702ae07          	flw	ft8,112(t0)
+ 1c0:	0742ae87          	flw	ft9,116(t0)
+ 1c4:	0782af07          	flw	ft10,120(t0)
+ 1c8:	07c2af87          	flw	ft11,124(t0)
+ 1cc:	00032027          	fsw	ft0,0(t1)
+ 1d0:	00132227          	fsw	ft1,4(t1)
+ 1d4:	00232427          	fsw	ft2,8(t1)
+ 1d8:	00332627          	fsw	ft3,12(t1)
+ 1dc:	00432827          	fsw	ft4,16(t1)
+ 1e0:	00532a27          	fsw	ft5,20(t1)
+ 1e4:	00632c27          	fsw	ft6,24(t1)
+ 1e8:	00732e27          	fsw	ft7,28(t1)
+ 1ec:	02832027          	fsw	fs0,32(t1)
+ 1f0:	02932227          	fsw	fs1,36(t1)
+ 1f4:	02a32427          	fsw	fa0,40(t1)
+ 1f8:	02b32627          	fsw	fa1,44(t1)
+ 1fc:	02c32827          	fsw	fa2,48(t1)
+ 200:	02d32a27          	fsw	fa3,52(t1)
+ 204:	02e32c27          	fsw	fa4,56(t1)
+ 208:	02f32e27          	fsw	fa5,60(t1)
+ 20c:	05032027          	fsw	fa6,64(t1)
+ 210:	05132227          	fsw	fa7,68(t1)
+ 214:	05232427          	fsw	fs2,72(t1)
+ 218:	05332627          	fsw	fs3,76(t1)
+ 21c:	05432827          	fsw	fs4,80(t1)
+ 220:	05532a27          	fsw	fs5,84(t1)
+ 224:	05632c27          	fsw	fs6,88(t1)
+ 228:	05732e27          	fsw	fs7,92(t1)
+ 22c:	07832027          	fsw	fs8,96(t1)
+ 230:	07932227          	fsw	fs9,100(t1)
+ 234:	07a32427          	fsw	fs10,104(t1)
+ 238:	07b32627          	fsw	fs11,108(t1)
+ 23c:	07c32827          	fsw	ft8,112(t1)
+ 240:	07d32a27          	fsw	ft9,116(t1)
+ 244:	07e32c27          	fsw	ft10,120(t1)
+ 248:	07f32e27          	fsw	ft11,124(t1)
+ 24c:	08028293          	addi	t0,t0,128
+ 250:	08030313          	addi	t1,t1,128
+ 254:	00138393          	addi	t2,t2,1
+ 258:	efc39ae3          	bne	t2,t3,14c <dmem_to_dram_loop>
+ 25c:	4010f2b7          	lui	t0,0x4010f
+ 260:	ad428293          	addi	t0,t0,-1324 # 4010ead4 <_bsg_elf_vcache_size+0x400cead4>
+ 264:	00100313          	li	t1,1
+ 268:	0062a023          	sw	t1,0(t0)
+ 26c:	00000293          	li	t0,0
+ 270:	00000313          	li	t1,0
+ 274:	40000393          	li	t2,1024
+ 278:	d0007053          	fcvt.s.w	ft0,zero
+
+0000027c <clear_dmem_loop>:
+ 27c:	0002a027          	fsw	ft0,0(t0)
+ 280:	00428293          	addi	t0,t0,4
+ 284:	00130313          	addi	t1,t1,1
+ 288:	fe731ae3          	bne	t1,t2,27c <clear_dmem_loop>
+ 28c:	4010f2b7          	lui	t0,0x4010f
+ 290:	ad428293          	addi	t0,t0,-1324 # 4010ead4 <_bsg_elf_vcache_size+0x400cead4>
+ 294:	00200313          	li	t1,2
+ 298:	0062a023          	sw	t1,0(t0)
+ 29c:	00000293          	li	t0,0
+ 2a0:	81000317          	auipc	t1,0x81000
+ 2a4:	d6030313          	addi	t1,t1,-672 # 81000000 <_bsg_dram_end_addr+0xfffff000>
+ 2a8:	00000393          	li	t2,0
+ 2ac:	02000e13          	li	t3,32
+
+000002b0 <dram_to_dmem_loop>:
+ 2b0:	00032007          	flw	ft0,0(t1)
+ 2b4:	00432087          	flw	ft1,4(t1)
+ 2b8:	00832107          	flw	ft2,8(t1)
+ 2bc:	00c32187          	flw	ft3,12(t1)
+ 2c0:	01032207          	flw	ft4,16(t1)
+ 2c4:	01432287          	flw	ft5,20(t1)
+ 2c8:	01832307          	flw	ft6,24(t1)
+ 2cc:	01c32387          	flw	ft7,28(t1)
+ 2d0:	02032407          	flw	fs0,32(t1)
+ 2d4:	02432487          	flw	fs1,36(t1)
+ 2d8:	02832507          	flw	fa0,40(t1)
+ 2dc:	02c32587          	flw	fa1,44(t1)
+ 2e0:	03032607          	flw	fa2,48(t1)
+ 2e4:	03432687          	flw	fa3,52(t1)
+ 2e8:	03832707          	flw	fa4,56(t1)
+ 2ec:	03c32787          	flw	fa5,60(t1)
+ 2f0:	04032807          	flw	fa6,64(t1)
+ 2f4:	04432887          	flw	fa7,68(t1)
+ 2f8:	04832907          	flw	fs2,72(t1)
+ 2fc:	04c32987          	flw	fs3,76(t1)
+ 300:	05032a07          	flw	fs4,80(t1)
+ 304:	05432a87          	flw	fs5,84(t1)
+ 308:	05832b07          	flw	fs6,88(t1)
+ 30c:	05c32b87          	flw	fs7,92(t1)
+ 310:	06032c07          	flw	fs8,96(t1)
+ 314:	06432c87          	flw	fs9,100(t1)
+ 318:	06832d07          	flw	fs10,104(t1)
+ 31c:	06c32d87          	flw	fs11,108(t1)
+ 320:	07032e07          	flw	ft8,112(t1)
+ 324:	07432e87          	flw	ft9,116(t1)
+ 328:	07832f07          	flw	ft10,120(t1)
+ 32c:	07c32f87          	flw	ft11,124(t1)
+ 330:	0002a027          	fsw	ft0,0(t0)
+ 334:	0012a227          	fsw	ft1,4(t0)
+ 338:	0022a427          	fsw	ft2,8(t0)
+ 33c:	0032a627          	fsw	ft3,12(t0)
+ 340:	0042a827          	fsw	ft4,16(t0)
+ 344:	0052aa27          	fsw	ft5,20(t0)
+ 348:	0062ac27          	fsw	ft6,24(t0)
+ 34c:	0072ae27          	fsw	ft7,28(t0)
+ 350:	0282a027          	fsw	fs0,32(t0)
+ 354:	0292a227          	fsw	fs1,36(t0)
+ 358:	02a2a427          	fsw	fa0,40(t0)
+ 35c:	02b2a627          	fsw	fa1,44(t0)
+ 360:	02c2a827          	fsw	fa2,48(t0)
+ 364:	02d2aa27          	fsw	fa3,52(t0)
+ 368:	02e2ac27          	fsw	fa4,56(t0)
+ 36c:	02f2ae27          	fsw	fa5,60(t0)
+ 370:	0502a027          	fsw	fa6,64(t0)
+ 374:	0512a227          	fsw	fa7,68(t0)
+ 378:	0522a427          	fsw	fs2,72(t0)
+ 37c:	0532a627          	fsw	fs3,76(t0)
+ 380:	0542a827          	fsw	fs4,80(t0)
+ 384:	0552aa27          	fsw	fs5,84(t0)
+ 388:	0562ac27          	fsw	fs6,88(t0)
+ 38c:	0572ae27          	fsw	fs7,92(t0)
+ 390:	0782a027          	fsw	fs8,96(t0)
+ 394:	0792a227          	fsw	fs9,100(t0)
+ 398:	07a2a427          	fsw	fs10,104(t0)
+ 39c:	07b2a627          	fsw	fs11,108(t0)
+ 3a0:	07c2a827          	fsw	ft8,112(t0)
+ 3a4:	07d2aa27          	fsw	ft9,116(t0)
+ 3a8:	07e2ac27          	fsw	ft10,120(t0)
+ 3ac:	07f2ae27          	fsw	ft11,124(t0)
+ 3b0:	08028293          	addi	t0,t0,128
+ 3b4:	08030313          	addi	t1,t1,128
+ 3b8:	00138393          	addi	t2,t2,1
+ 3bc:	efc39ae3          	bne	t2,t3,2b0 <dram_to_dmem_loop>
+ 3c0:	4010f2b7          	lui	t0,0x4010f
+ 3c4:	ad428293          	addi	t0,t0,-1324 # 4010ead4 <_bsg_elf_vcache_size+0x400cead4>
+ 3c8:	00300313          	li	t1,3
+ 3cc:	0062a023          	sw	t1,0(t0)
+ 3d0:	00000293          	li	t0,0
+ 3d4:	00000313          	li	t1,0
+ 3d8:	40000393          	li	t2,1024
+
+000003dc <validate_loop>:
+ 3dc:	0002a007          	flw	ft0,0(t0)
+ 3e0:	c0007e53          	fcvt.w.s	t3,ft0
+ 3e4:	026e1263          	bne	t3,t1,408 <fail>
+ 3e8:	00428293          	addi	t0,t0,4
+ 3ec:	00130313          	addi	t1,t1,1
+ 3f0:	fe7316e3          	bne	t1,t2,3dc <validate_loop>
+
+000003f4 <pass>:
+ 3f4:	4010f2b7          	lui	t0,0x4010f
+ 3f8:	ad028293          	addi	t0,t0,-1328 # 4010ead0 <_bsg_elf_vcache_size+0x400cead0>
+ 3fc:	00000313          	li	t1,0
+ 400:	0062a023          	sw	t1,0(t0)
+
+00000404 <pass_loop>:
+ 404:	00000063          	beqz	zero,404 <pass_loop>
+
+00000408 <fail>:
+ 408:	4010f2b7          	lui	t0,0x4010f
+ 40c:	ad828293          	addi	t0,t0,-1320 # 4010ead8 <_bsg_elf_vcache_size+0x400cead8>
+ 410:	00000313          	li	t1,0
+ 414:	0062a023          	sw	t1,0(t0)
+
+00000418 <fail_loop>:
+ 418:	00000063          	beqz	zero,418 <fail_loop>
+
+0000041c <__.text.dram_end>:
+ 41c:	0000                	unimp
+	...
