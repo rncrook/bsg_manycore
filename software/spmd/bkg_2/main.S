@@ -20,9 +20,14 @@
 
 
 test_routine:
-li x30, 31
-li x31, 31
-j test_routine
+li x29, 0
+li x30, 0
+li x31, 1
+loop:
+add x31, x30, x29
+addi x30, x31, 0
+addi x29, x30, 0
+j loop
 
 
 _start:
