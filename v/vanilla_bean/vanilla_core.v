@@ -152,7 +152,7 @@ module vanilla_core
   localparam lg_icache_block_size_in_words_lp = `BSG_SAFE_CLOG2(icache_block_size_in_words_p);
   logic icache_v_li, bkg_icache_v_li;
   logic icache_w_li;
-  logic icache_read_pc_plus4_li, bkg_icache_read_pc_plus4_li; 
+  logic icache_read_pc_plus4_li, bkg_icache_read_pc_plus4_li;
 
   logic [pc_width_lp-1:0] icache_w_pc;
   logic [data_width_p-1:0] icache_winstr;
@@ -1227,7 +1227,7 @@ module vanilla_core
   always_comb begin
     icache_read_pc_plus4_li = 1'b0;
     if (reset_down) begin
-      pc_n = pc_init_val_i;
+      pc_n = pc_init_val_i >> 2; // pc_init_val_i should be a word address but is specifying the value of a the entry instruction's corresponding byte address.
     end
     else if (wb_ctrl_r.icache_miss) begin
       pc_n = pc_r;
@@ -1275,7 +1275,7 @@ module vanilla_core
 
     if (reset_down) begin
     end
-    else if (bkg_instr_v) begin 
+    else if (bkg_instr_v) begin
       // if bkg_instr_v is not valid then bkg_pc_n should only point at
       // bkg_pc_r (any status info below is invalid), if bkg doesn't own
       // either line buffer, bkg needs to read in the line buffer at 'bkg_pc_r'
@@ -1289,7 +1289,7 @@ module vanilla_core
       //else if (bkg_decode.is_branch_op & bkg_icache_branch_predicted_taken_lo) begin
       //  bkg_pc_n = bkg_pred_or_jump_addr;
       //end
-      //else 
+      //else
       if (bkg_decode.is_jal_op) begin
         bkg_pc_n = bkg_pred_or_jump_addr;
       end
@@ -1385,7 +1385,7 @@ module vanilla_core
         id_en = 1'b0;
       end
       // When stall_id is high, icache miss should not be flushing ID.
-      else if (icache_miss_in_pipe | icache_flush_r_lo) begin
+      else if (icache_miss_in_pipe | icache_flush_r_lo | bkg_icache_line_v_r) begin
         id_en = 1'b1;
         id_n = '0;
       end
