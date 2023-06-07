@@ -289,12 +289,31 @@ module vanilla_core
 
   // int regfile
   //
+  //
+
+
+  // these signal names declaration are hoisted up much earlier in the file
+  // for use with the regfile
+  logic stall_id, bkg_stall_id, stall_all;
+  logic id_issue, bkg_id_issue;
+  
+
+
+
+
   logic int_rf_wen;
   logic [reg_addr_width_lp-1:0] int_rf_waddr;
   logic [data_width_p-1:0] int_rf_wdata;
 
-  logic [1:0] int_rf_read;
-  logic [1:0][data_width_p-1:0] int_rf_rdata;
+  logic [1:0] int_rf_read, bkg_int_rf_read;
+  logic [1:0][data_width_p-1:0] int_rf_rdata, int_rf_rdata_mux;
+
+  logic [1:0][data_width_p-1:0] int_rf_rdata_backup, bkg_int_rf_rdata_backup;
+  logic int_rf_rdata_backup_v_r, bkg_int_rf_rdata_backup_v_r;
+  
+  // background thread instruc issued from IF into ID stage (via bkg_id_r
+  // registers), access to regfile this cycle granted to background thread
+  wire bkg_if_to_id = bkg_instr_v & stall_id & ~bkg_stall_id & ~stall_all; 
 
   regfile #(
     .width_p(data_width_p)
@@ -309,10 +328,69 @@ module vanilla_core
     ,.w_addr_i(int_rf_waddr)
     ,.w_data_i(int_rf_wdata)
 
-    ,.r_v_i(int_rf_read)
-    ,.r_addr_i({instruction.rs2, instruction.rs1})
+    ,.r_v_i    (bkg_if_to_id ? bkg_int_rf_read : int_rf_read)
+    ,.r_addr_i (bkg_if_to_id ? {bkg_instruction.rs2, bkg_instruction.rs1}
+                             : {instruction.rs2, instruction.rs1})
     ,.r_data_o(int_rf_rdata)
   );
+
+
+  // Backup register read values when (stall_id and background thread accesses
+  // regfile)
+  // also, it's not necessary to save both register read value, but shouldn't
+  // make a difference wrt to priority exe forwarding mux
+  //
+  // todo: a single backup register can be shared between main and bkg thread
+  always_ff @(posedge clk_i) begin
+    if (reset_i) begin
+      int_rf_rdata_backup_v_r <= 1'b0;
+      int_rf_rdata_backup     <= '0;
+
+      bkg_int_rf_rdata_backup_v_r <= 1'b0;
+      bkg_int_rf_rdata_backup     <= '0;
+    end
+    else begin
+      // backup main RF reads when stall_id
+      if (~int_rf_rdata_backup_v_r & id_r.valid & stall_id) begin
+        int_rf_rdata_backup_v_r <= 1'b1;
+        int_rf_rdata_backup     <= int_rf_rdata;
+      end
+
+      // latch bkg RF reads (if ID contains bkg instruc) when ~stall_id
+      if (~bkg_int_rf_rdata_backup_v_r & bkg_id_r.valid & ~stall_id) begin
+        // if ~stall_id for one or more cycles then we'll actuall latch
+        // next cycles main read data unless we qualify valid here
+        bkg_int_rf_rdata_backup_v_r <= 1'b1;
+        bkg_int_rf_rdata_backup     <= int_rf_rdata;
+      end
+
+      // main instruc in ID issues and uses backed up RF read data
+      if (id_issue) begin // & int_rf_rdata_backup_v_r 
+        int_rf_rdata_backup_v_r <= 1'b0;
+      end
+
+      if (bkg_id_issue) begin
+        bkg_int_rf_rdata_backup_v_r <= 1'b0;
+      end
+    end
+  end
+
+
+
+  assign int_rf_rdata_mux = (int_rf_rdata_backup_v_r     & id_issue)      ?  int_rf_rdata_backup     : 
+                            (bkg_int_rf_rdata_backup_v_r & bkg_id_issue) ?  bkg_int_rf_rdata_backup : 
+                                                                           int_rf_rdata;
+
+
+
+  // synopsys translate_off
+  wire [data_width_p-1:0] int_rf_rdata_rs1_val   = int_rf_rdata[0];
+  wire [data_width_p-1:0] int_rf_rdata_rs2_val   = int_rf_rdata[1];
+  wire [data_width_p-1:0] int_backup_rs1_val     = int_rf_rdata_backup[0];
+  wire [data_width_p-1:0] int_backup_rs2_val     = int_rf_rdata_backup[1];
+  wire [data_width_p-1:0] bkg_int_backup_rs1_val = bkg_int_rf_rdata_backup[0];
+  wire [data_width_p-1:0] bkg_int_backup_rs2_val = bkg_int_rf_rdata_backup[1];
+  // synopsys translate_on
 
 
   //  int scoreboard
@@ -533,6 +611,12 @@ module vanilla_core
       ? `RV32_Iimm_12extract(id_r.instruction)
       : '0);
 
+  wire [RV32_Iimm_width_gp-1:0] bkg_mem_addr_op2 = bkg_id_r.decode.is_store_op
+    ? `RV32_Simm_12extract(bkg_id_r.instruction)
+    : (bkg_id_r.decode.is_load_op
+      ? `RV32_Iimm_12extract(bkg_id_r.instruction)
+      : '0);
+
   // 'aq' register
   // When amo_op with aq is issued to EXE, 'aq' register is set.
   // While 'aq' is set, subsequent memory ops (e.g. load, store, lr, AMO) cannot be isssued, until 'aq' is cleared.
@@ -572,7 +656,7 @@ module vanilla_core
     .els_p(2)
     ,.width_p(fpu_recoded_data_width_gp)
   ) frs1_select_mux (
-    .data_i({{1'b0, int_rf_rdata[0]}, float_rf_rdata[0]})
+    .data_i({{1'b0, int_rf_rdata[0]}, float_rf_rdata[0]}) //// todo: check me, do I have to be int_rf_rdata[0]?
     ,.sel_i(select_rs1_to_fp_exe)
     ,.data_o(frs1_select_val)
   );
@@ -624,19 +708,19 @@ module vanilla_core
 
   logic [data_width_p-1:0] exe_result;
   logic [data_width_p-1:0] mem_result;
-  logic [1:0] rs1_forward_sel;
-  logic [1:0] rs2_forward_sel;
+  logic [1:0] rs1_forward_sel, bkg_rs1_forward_sel;
+  logic [1:0] rs2_forward_sel, bkg_rs2_forward_sel;
   logic [data_width_p-1:0] rs1_forward_val;
   logic [data_width_p-1:0] rs2_forward_val;
-  logic rs1_forward_v;
-  logic rs2_forward_v;
+  logic rs1_forward_v, bkg_rs1_forward_v;
+  logic rs2_forward_v, bkg_rs2_forward_v;
 
   bsg_mux #(
     .els_p(3)
     ,.width_p(data_width_p)
   ) exe_rs1_fwd_mux (
     .data_i({wb_data_r.rf_data, mem_result, exe_result})
-    ,.sel_i(rs1_forward_sel)
+    ,.sel_i(bkg_id_issue ? rs1_forward_sel : bkg_rs1_forward_sel)
     ,.data_o(rs1_forward_val)
   );
 
@@ -645,22 +729,22 @@ module vanilla_core
     ,.width_p(data_width_p)
   ) exe_rs2_fwd_mux (
     .data_i({wb_data_r.rf_data, mem_result, exe_result})
-    ,.sel_i(rs2_forward_sel)
+    ,.sel_i(bkg_id_issue ? rs2_forward_sel : bkg_rs2_forward_sel)
     ,.data_o(rs2_forward_val)
   );
 
   logic [data_width_p-1:0] rs1_val_to_exe;
   logic [data_width_p-1:0] rs2_val_to_exe;
 
-  assign rs1_val_to_exe = rs1_forward_v
+  assign rs1_val_to_exe = (rs1_forward_v | bkg_rs1_forward_v & bkg_id_issue)
     ? rs1_forward_val
-    : int_rf_rdata[0];
+    : int_rf_rdata_mux[0];
 
-  assign rs2_val_to_exe = id_r.decode.read_frs2
+  assign rs2_val_to_exe = id_r.decode.read_frs2 & ~bkg_id_issue
     ? fsw_data
-    : (rs2_forward_v
+    : ((rs2_forward_v | bkg_rs2_forward_v & bkg_id_issue) 
       ? rs2_forward_val
-      : int_rf_rdata[1]);
+      : int_rf_rdata_mux[1]);
 
 
   //////////////////////////////
@@ -1184,7 +1268,7 @@ module vanilla_core
   // FP_WB stall signals
   logic stall_remote_flw_wb;
 
-  wire stall_id = stall_depend_long_op
+  assign stall_id = stall_depend_long_op
     | stall_depend_local_load
     | stall_depend_imul
     | stall_bypass
@@ -1200,9 +1284,9 @@ module vanilla_core
     | stall_barrier;
 
 
-  wire bkg_stall_id = bkg_stall_depend_local_load;
+  assign bkg_stall_id = bkg_stall_depend_local_load;
 
-  wire stall_all = stall_icache_store
+  assign stall_all = stall_icache_store
     | stall_remote_ld_wb
     | stall_ifetch_wait
     | stall_remote_flw_wb;
@@ -1220,7 +1304,8 @@ module vanilla_core
   wire icache_miss_in_pipe = id_r.icache_miss | exe_r.icache_miss | mem_ctrl_r.icache_miss | wb_ctrl_r.icache_miss;
 
   // ID stage is not stalled and not flushed.
-  wire id_issue = ~stall_id & ~stall_all & ~flush;
+  assign id_issue = ~stall_id & ~stall_all & ~flush;
+  assign bkg_id_issue = stall_id & ~stall_all & bkg_id_r.valid;
 
 
   // Next PC logic
@@ -1456,8 +1541,14 @@ module vanilla_core
 
   // regfile read
   wire rf_read_en = ~(stall_id | stall_all);
+  wire bkg_rf_read_en = bkg_if_to_id;
   assign int_rf_read[0] = id_n.decode.read_rs1 & rf_read_en;
   assign int_rf_read[1] = id_n.decode.read_rs2 & rf_read_en;
+
+  assign bkg_int_rf_read[0] = bkg_id_n.decode.read_rs1 & bkg_rf_read_en;
+  assign bkg_int_rf_read[1] = bkg_id_n.decode.read_rs2 & bkg_rf_read_en;
+
+
   assign float_rf_read[0] = id_n.decode.read_frs1 & rf_read_en;
   assign float_rf_read[1] = id_n.decode.read_frs2 & rf_read_en;
   assign float_rf_read[2] = id_n.decode.read_frs3 & rf_read_en;
@@ -1498,6 +1589,12 @@ module vanilla_core
   wire bkg_id_rd_non_zero   = bkg_id_rd != '0;
   wire bkg_id_rs1_equal_exe_rd = (bkg_id_rs1 == exe_r.instruction.rd);
   wire bkg_id_rs2_equal_exe_rd = (bkg_id_rs2 == exe_r.instruction.rd);
+
+  wire bkg_id_rs1_equal_mem_rd = (bkg_id_rs1 == mem_ctrl_r.rd_addr);
+  wire bkg_id_rs2_equal_mem_rd = (bkg_id_rs2 == mem_ctrl_r.rd_addr);
+
+  wire bkg_id_rs1_equal_wb_rd = (bkg_id_rs1 == wb_ctrl_r.rd_addr);
+  wire bkg_id_rs2_equal_wb_rd = (bkg_id_rs2 == wb_ctrl_r.rd_addr);
 
 
   // extra control signals for background
@@ -1587,7 +1684,8 @@ module vanilla_core
   logic [lg_fwd_fifo_els_lp-1:0] remote_req_counter_r;
   wire local_mem_op_restore = (lsu_dmem_v_lo & ~exe_r.decode.is_lr_op & ~exe_r.decode.is_lr_aq_op) & ~stall_all;
   wire id_remote_req_op = (id_r.decode.is_load_op | id_r.decode.is_store_op | id_r.decode.is_amo_op | id_r.icache_miss);
-  wire memory_op_issued = id_remote_req_op & id_issue;
+  wire memory_op_issued = id_remote_req_op & id_issue; // todo: bkg thread 'bkg_stall_id' should also monitor these signals + 'memory_op_issued' should be high if 
+                                                       // the bkg thread has a memory op issued from id-stage
   wire [lg_fwd_fifo_els_lp-1:0] remote_req_available =
     remote_req_counter_r +
     remote_req_credit_i +
@@ -1646,19 +1744,19 @@ module vanilla_core
   // [0] = exe
   // [1] = mem
   // [2] = wb
-  logic [2:0] has_forward_data_rs1;
-  logic [2:0] has_forward_data_rs2;
+  logic [2:0] has_forward_data_rs1, bkg_has_forward_data_rs1;
+  logic [2:0] has_forward_data_rs2, bkg_has_forward_data_rs2;
 
   assign has_forward_data_rs1[0] =
-    ((exe_r.decode.write_rd & id_rs1_equal_exe_rd)
+    ((exe_r.decode.write_rd & id_rs1_equal_exe_rd)                            // todo:  & (bkg_id_rs1_equal_exe_rd | id_rs1_equal_exe_rd)
     |(fp_exe_ctrl_r.fp_decode.is_fpu_int_op & id_rs1_equal_fp_exe_rd))
-    & id_rs1_non_zero;
+    & id_rs1_non_zero;                                                       // todo: & (id_rs1_non_zero | bkg_id_rs1_non_zero)
   assign has_forward_data_rs1[1] =
-    ((mem_ctrl_r.write_rd & id_rs1_equal_mem_rd)
+    ((mem_ctrl_r.write_rd & id_rs1_equal_mem_rd)                            // todo: create 'bkg_id_rs1_equal_mem_rd'
     |(imul_v_lo & (imul_rd_lo == id_rs1)))
     & id_rs1_non_zero;
   assign has_forward_data_rs1[2] =
-    wb_ctrl_r.write_rd & id_rs1_equal_wb_rd
+    wb_ctrl_r.write_rd & id_rs1_equal_wb_rd                                 // todo: create 'bkg_id_rs1_equal_wb_rd'
     & id_rs1_non_zero;
 
   bsg_priority_encode #(
@@ -1670,17 +1768,40 @@ module vanilla_core
     ,.v_o(rs1_forward_v)
   );
 
+  assign bkg_has_forward_data_rs1[0] =
+    ((exe_r.decode.write_rd & bkg_id_rs1_equal_exe_rd)) 
+    & bkg_id_rs1_non_zero; 
+  assign bkg_has_forward_data_rs1[1] =
+    ((mem_ctrl_r.write_rd & bkg_id_rs1_equal_mem_rd)
+    |(imul_v_lo & (imul_rd_lo == bkg_id_rs1)))
+    & bkg_id_rs1_non_zero;
+  assign bkg_has_forward_data_rs1[2] =
+    wb_ctrl_r.write_rd & bkg_id_rs1_equal_wb_rd 
+    & bkg_id_rs1_non_zero;
+
+  bsg_priority_encode #(
+    .width_p(3)
+    ,.lo_to_hi_p(1)
+  ) rs1_forward_pe0_bkg (
+    .i(bkg_has_forward_data_rs1)
+    ,.addr_o(bkg_rs1_forward_sel)
+    ,.v_o(bkg_rs1_forward_v)
+  );
+
+
+  ///// rs2
+
   assign has_forward_data_rs2[0] =
-    ((exe_r.decode.write_rd & id_rs2_equal_exe_rd)
+    ((exe_r.decode.write_rd & id_rs2_equal_exe_rd) // todo
     |(fp_exe_ctrl_r.fp_decode.is_fpu_int_op & id_rs2_equal_fp_exe_rd))
     & id_rs2_non_zero;
   assign has_forward_data_rs2[1] =
-    ((mem_ctrl_r.write_rd & id_rs2_equal_mem_rd)
+    ((mem_ctrl_r.write_rd & id_rs2_equal_mem_rd) // todo
     |(imul_v_lo & (imul_rd_lo == id_rs2)))
     & id_rs2_non_zero;
   assign has_forward_data_rs2[2] =
-    wb_ctrl_r.write_rd & id_rs2_equal_wb_rd
-    & id_rs2_non_zero;
+    wb_ctrl_r.write_rd & id_rs2_equal_wb_rd // todo: create 'bkg_id_rs2_equal_wb_rd'
+    & id_rs2_non_zero;// todo: & (id_rs2_non_zero | bkg_id_rs2_non_zero)
 
   bsg_priority_encode #(
     .width_p(3)
@@ -1689,6 +1810,26 @@ module vanilla_core
     .i(has_forward_data_rs2)
     ,.addr_o(rs2_forward_sel)
     ,.v_o(rs2_forward_v)
+  );
+
+  assign bkg_has_forward_data_rs2[0] =
+    ((exe_r.decode.write_rd & bkg_id_rs2_equal_exe_rd))
+    & bkg_id_rs2_non_zero;
+  assign bkg_has_forward_data_rs2[1] =
+    ((mem_ctrl_r.write_rd & bkg_id_rs2_equal_mem_rd) 
+    |(imul_v_lo & (imul_rd_lo == bkg_id_rs2)))
+    & bkg_id_rs2_non_zero;
+  assign bkg_has_forward_data_rs2[2] =
+    wb_ctrl_r.write_rd & bkg_id_rs2_equal_wb_rd // todo: create 'bkg_id_rs2_equal_wb_rd'
+    & bkg_id_rs2_non_zero;// todo: & (id_rs2_non_zero | bkg_id_rs2_non_zero)
+
+  bsg_priority_encode #(
+    .width_p(3)
+    ,.lo_to_hi_p(1)
+  ) rs2_forward_pe0_bkg (
+    .i(bkg_has_forward_data_rs2)
+    ,.addr_o(bkg_rs2_forward_sel)
+    ,.v_o(bkg_rs2_forward_v)
   );
 
 
@@ -1749,6 +1890,28 @@ module vanilla_core
       if (flush | stall_id) begin
         exe_en = 1'b1;
         exe_n = '0;
+
+        if (stall_id) begin // for now, consider only 'stall_id', later try out the flush condition too!
+          // Background Thread Instruction Issue!
+          
+          exe_n = 1'b1;
+          exe_n = '{
+            pc_plus4:               bkg_id_r.pc_plus4,
+            valid:                  bkg_id_r.valid,
+            pred_or_jump_addr:      bkg_id_r.pred_or_jump_addr,
+            instruction:            bkg_id_r.instruction,
+            decode:                 bkg_id_r.decode,
+            rs1_val:                rs1_val_to_exe, // r1 is either: forwarded, straight from regfile, or living in a backup operand buffer 
+            rs2_val:                rs2_val_to_exe, // r2 is either: forwarded, straight from regfile, or living in a backup operand buffer 
+            mem_addr_op2:           bkg_mem_addr_op2,
+            icache_miss:            bkg_id_r.icache_miss,
+            branch_predicted_taken: bkg_id_r.branch_predicted_taken
+          };
+        
+
+
+
+        end 
       end
       else if (id_r.decode.is_fp_op) begin
         // for fp_op, we still want to keep track of npc_r.
