@@ -20,13 +20,16 @@
 
 
 test_routine:
-li x29, 0
 li x30, 0
-li x31, 1
+addi x30, x30, 1
+addi x30, x30, 2
+addi x30, x30, 3
+addi x30, x30, 4
+addi x30, x30, 5
+addi x30, x30, 6
+addi x30, x30, 7
 loop:
-add x31, x30, x29
-addi x30, x31, 0
-addi x29, x30, 0
+addi x30, x30, 1
 j loop
 
 
