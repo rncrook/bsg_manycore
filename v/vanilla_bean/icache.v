@@ -58,7 +58,7 @@ module icache
     // no icache write interface for bkg thread
 
     // icache read
-    , input bkg_read_pc_plus4_i 
+    , input bkg_read_pc_plus4_i
     , input  [pc_width_lp-1:0] bkg_pc_i
     , output [pc_width_lp-1:0] bkg_pc_r_o
     , output [RV32_instr_width_gp-1:0] bkg_instr_o
@@ -112,15 +112,15 @@ module icache
     .clk_i(clk_i)
     ,.reset_i(reset_i)
     ,.v_i(v_li) // multiplex between main and background
-    ,.w_i(w_i) 
+    ,.w_i(w_i)
     ,.addr_i(icache_addr_li) // multiplex between pc_i and bkg_pc_i
     ,.data_i(icache_data_li)
     ,.data_o(icache_data_lo)
   );
 
-  assign icache_addr_li = 
-      w_i ? w_addr : 
-      v_i ? pc_i[icache_block_offset_width_lp+:icache_addr_width_lp] : 
+  assign icache_addr_li =
+      w_i ? w_addr :
+      v_i ? pc_i[icache_block_offset_width_lp+:icache_addr_width_lp] :
             bkg_pc_i[icache_block_offset_width_lp+:icache_addr_width_lp];
 
 

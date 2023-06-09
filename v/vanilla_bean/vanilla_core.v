@@ -172,6 +172,7 @@ module vanilla_core
   logic bkg_instr_v;
   logic bkg_icache_line_v_r;
 
+  logic flush_bkg;
 
   icache #(
     .icache_tag_width_p(icache_tag_width_p)
@@ -296,7 +297,7 @@ module vanilla_core
   // for use with the regfile
   logic stall_id, bkg_stall_id, stall_all;
   logic id_issue, bkg_id_issue;
-  
+
 
 
 
@@ -310,10 +311,16 @@ module vanilla_core
 
   logic [1:0][data_width_p-1:0] int_rf_rdata_backup, bkg_int_rf_rdata_backup;
   logic int_rf_rdata_backup_v_r, bkg_int_rf_rdata_backup_v_r;
-  
+
+  logic bkg_instruc_in_exe;
+  always_ff @(posedge clk_i) begin
+    if (reset_i) bkg_instruc_in_exe <= 1'b0;
+    else         bkg_instruc_in_exe <= bkg_id_issue;
+  end
+
   // background thread instruc issued from IF into ID stage (via bkg_id_r
   // registers), access to regfile this cycle granted to background thread
-  wire bkg_if_to_id = bkg_instr_v & stall_id & ~bkg_stall_id & ~stall_all; 
+  wire bkg_if_to_id = bkg_instr_v & stall_id & ~bkg_stall_id & ~stall_all;
 
   regfile #(
     .width_p(data_width_p)
@@ -333,6 +340,11 @@ module vanilla_core
                              : {instruction.rs2, instruction.rs1})
     ,.r_data_o(int_rf_rdata)
   );
+
+  logic [data_width_p-1:0] rs1_forward_val, bkg_rs1_forward_val;
+  logic [data_width_p-1:0] rs2_forward_val, bkg_rs2_forward_val;
+  logic rs1_forward_v, bkg_rs1_forward_v;
+  logic rs2_forward_v, bkg_rs2_forward_v;
 
 
   // Backup register read values when (stall_id and background thread accesses
@@ -362,14 +374,19 @@ module vanilla_core
         // next cycles main read data unless we qualify valid here
         bkg_int_rf_rdata_backup_v_r <= 1'b1;
         bkg_int_rf_rdata_backup     <= int_rf_rdata;
+      end else if(bkg_id_r.valid & bkg_rs1_forward_v) begin
+        // not stall'd but we need to pick latch this value regardless of what
+        // we latched from the regfile
+        bkg_int_rf_rdata_backup_v_r <= 1'b1;
+        bkg_int_rf_rdata_backup     <= bkg_rs1_forward_val;
       end
 
       // main instruc in ID issues and uses backed up RF read data
-      if (id_issue) begin // & int_rf_rdata_backup_v_r 
+      if (id_issue) begin // & int_rf_rdata_backup_v_r
         int_rf_rdata_backup_v_r <= 1'b0;
       end
 
-      if (bkg_id_issue) begin
+      if (bkg_id_issue | flush_bkg) begin
         bkg_int_rf_rdata_backup_v_r <= 1'b0;
       end
     end
@@ -377,8 +394,8 @@ module vanilla_core
 
 
 
-  assign int_rf_rdata_mux = (int_rf_rdata_backup_v_r     & id_issue)      ?  int_rf_rdata_backup     : 
-                            (bkg_int_rf_rdata_backup_v_r & bkg_id_issue) ?  bkg_int_rf_rdata_backup : 
+  assign int_rf_rdata_mux = (int_rf_rdata_backup_v_r     & id_issue)      ?  int_rf_rdata_backup     :
+                            (bkg_int_rf_rdata_backup_v_r & bkg_id_issue) ?  bkg_int_rf_rdata_backup :
                                                                            int_rf_rdata;
 
 
@@ -710,17 +727,13 @@ module vanilla_core
   logic [data_width_p-1:0] mem_result;
   logic [1:0] rs1_forward_sel, bkg_rs1_forward_sel;
   logic [1:0] rs2_forward_sel, bkg_rs2_forward_sel;
-  logic [data_width_p-1:0] rs1_forward_val;
-  logic [data_width_p-1:0] rs2_forward_val;
-  logic rs1_forward_v, bkg_rs1_forward_v;
-  logic rs2_forward_v, bkg_rs2_forward_v;
 
   bsg_mux #(
     .els_p(3)
     ,.width_p(data_width_p)
   ) exe_rs1_fwd_mux (
     .data_i({wb_data_r.rf_data, mem_result, exe_result})
-    ,.sel_i(bkg_id_issue ? rs1_forward_sel : bkg_rs1_forward_sel)
+    ,.sel_i(rs1_forward_sel)//bkg_id_issue ? rs1_forward_sel : bkg_rs1_forward_sel)
     ,.data_o(rs1_forward_val)
   );
 
@@ -729,20 +742,43 @@ module vanilla_core
     ,.width_p(data_width_p)
   ) exe_rs2_fwd_mux (
     .data_i({wb_data_r.rf_data, mem_result, exe_result})
-    ,.sel_i(bkg_id_issue ? rs2_forward_sel : bkg_rs2_forward_sel)
+    ,.sel_i(rs2_forward_sel)//bkg_id_issue ? rs2_forward_sel : bkg_rs2_forward_sel)
     ,.data_o(rs2_forward_val)
+  );
+
+  // extra forwarding muxes for background thread operands (TODO: if we're clever and actuall thinking then we
+  // don't need these)
+  bsg_mux #(
+    .els_p(3)
+    ,.width_p(data_width_p)
+  ) exe_rs1_fwd_mux_bkg (
+    .data_i({wb_data_r.rf_data, mem_result, exe_result})
+    ,.sel_i(bkg_rs1_forward_sel)
+    ,.data_o(bkg_rs1_forward_val)
+  );
+
+  bsg_mux #(
+    .els_p(3)
+    ,.width_p(data_width_p)
+  ) exe_rs2_fwd_mux_bkg (
+    .data_i({wb_data_r.rf_data, mem_result, exe_result})
+    ,.sel_i(bkg_rs2_forward_sel)
+    ,.data_o(bkg_rs2_forward_val)
   );
 
   logic [data_width_p-1:0] rs1_val_to_exe;
   logic [data_width_p-1:0] rs2_val_to_exe;
 
-  assign rs1_val_to_exe = (rs1_forward_v | bkg_rs1_forward_v & bkg_id_issue)
+  assign rs1_val_to_exe = (bkg_id_issue & bkg_rs1_forward_v) ?
+
+    bkg_rs1_forward_val
+    :((rs1_forward_v)// | bkg_rs1_forward_v & bkg_id_issue)
     ? rs1_forward_val
-    : int_rf_rdata_mux[0];
+    : int_rf_rdata_mux[0]);
 
   assign rs2_val_to_exe = id_r.decode.read_frs2 & ~bkg_id_issue
     ? fsw_data
-    : ((rs2_forward_v | bkg_rs2_forward_v & bkg_id_issue) 
+    : ((rs2_forward_v)// | bkg_rs2_forward_v & bkg_id_issue)
       ? rs2_forward_val
       : int_rf_rdata_mux[1]);
 
@@ -1300,7 +1336,10 @@ module vanilla_core
 
   //wire flush = (branch_mispredict & ~exe_is_bkg_instr | jalr_mispredict) | (exe_r.decode.is_mret_op) | interrupt_ready;
   //wire bkg_flush = branch_mispredict & exe_is_bkg_instr;
-  wire flush = (branch_mispredict | jalr_mispredict) | (exe_r.decode.is_mret_op) | interrupt_ready;
+  wire flush = (branch_mispredict | jalr_mispredict) & ~bkg_instruc_in_exe | (exe_r.decode.is_mret_op) | interrupt_ready;
+  assign flush_bkg = (branch_mispredict | jalr_mispredict) & bkg_instruc_in_exe;
+
+
   wire icache_miss_in_pipe = id_r.icache_miss | exe_r.icache_miss | mem_ctrl_r.icache_miss | wb_ctrl_r.icache_miss;
 
   // ID stage is not stalled and not flushed.
@@ -1328,12 +1367,12 @@ module vanilla_core
     else if (exe_r.decode.is_mret_op) begin
       pc_n = mepc_r;
     end
-    else if (branch_mispredict) begin
+    else if (branch_mispredict & ~bkg_instruc_in_exe) begin
       pc_n = alu_jump_now
         ? exe_r.pred_or_jump_addr[2+:pc_width_lp]
         : exe_r.pc_plus4[2+:pc_width_lp];
     end
-    else if (jalr_mispredict) begin
+    else if (jalr_mispredict & ~bkg_instruc_in_exe) begin
       pc_n = alu_jalr_addr;
     end
     else if (bkg_icache_line_v_r) begin
@@ -1366,15 +1405,15 @@ module vanilla_core
       // either line buffer, bkg needs to read in the line buffer at 'bkg_pc_r'
       // to resume execution
 
-      //if (branch_mispredict) begin // todo: pull this out of 'bkg_instr_v'?
-      //  bkg_pc_n = alu_jump_now
-      //    ? exe_r.pred_or_jump_addr[2+:pc_width_lp]
-      //    : exe_r.pc_plus4[2+:pc_width_lp];
-      //end
-      //else if (bkg_decode.is_branch_op & bkg_icache_branch_predicted_taken_lo) begin
-      //  bkg_pc_n = bkg_pred_or_jump_addr;
-      //end
-      //else
+      if (branch_mispredict & bkg_instruc_in_exe) begin // todo: pull this out of 'bkg_instr_v'?
+        bkg_pc_n = alu_jump_now
+          ? exe_r.pred_or_jump_addr[2+:pc_width_lp]
+          : exe_r.pc_plus4[2+:pc_width_lp];
+      end
+      else if (bkg_decode.is_branch_op & bkg_icache_branch_predicted_taken_lo) begin
+        bkg_pc_n = bkg_pred_or_jump_addr;
+      end
+      else
       if (bkg_decode.is_jal_op) begin
         bkg_pc_n = bkg_pred_or_jump_addr;
       end
@@ -1515,6 +1554,11 @@ module vanilla_core
       bkg_id_en = 1'b0; // if stall_all, then both threads must stall
     end
     else if(stall_id) begin
+      if (flush_bkg) begin
+        bkg_id_en = 1'b1;
+        bkg_id_n = '0;
+      end
+
       // if 'stall_id', then 'bkg_id_r' is available to update
 
 
@@ -1522,7 +1566,7 @@ module vanilla_core
       //  bkg_id_n = '0;
       //  bkg_id_en = 1'b1;
       //end
-      if (bkg_stall_id) begin // unless 'bkg_stall_id' is high, then don't squash ID bkg or issue new instruc to ID bkg
+      else if (bkg_stall_id) begin // unless 'bkg_stall_id' is high, then don't squash ID bkg or issue new instruc to ID bkg
         bkg_id_en = 1'b0;
       end else if (bkg_instr_v) begin
         // no background stall and (stall_id and ~stall-all), ready to issue ID!
@@ -1684,7 +1728,7 @@ module vanilla_core
   logic [lg_fwd_fifo_els_lp-1:0] remote_req_counter_r;
   wire local_mem_op_restore = (lsu_dmem_v_lo & ~exe_r.decode.is_lr_op & ~exe_r.decode.is_lr_aq_op) & ~stall_all;
   wire id_remote_req_op = (id_r.decode.is_load_op | id_r.decode.is_store_op | id_r.decode.is_amo_op | id_r.icache_miss);
-  wire memory_op_issued = id_remote_req_op & id_issue; // todo: bkg thread 'bkg_stall_id' should also monitor these signals + 'memory_op_issued' should be high if 
+  wire memory_op_issued = id_remote_req_op & id_issue; // todo: bkg thread 'bkg_stall_id' should also monitor these signals + 'memory_op_issued' should be high if
                                                        // the bkg thread has a memory op issued from id-stage
   wire [lg_fwd_fifo_els_lp-1:0] remote_req_available =
     remote_req_counter_r +
@@ -1769,14 +1813,14 @@ module vanilla_core
   );
 
   assign bkg_has_forward_data_rs1[0] =
-    ((exe_r.decode.write_rd & bkg_id_rs1_equal_exe_rd)) 
-    & bkg_id_rs1_non_zero; 
+    ((exe_r.decode.write_rd & bkg_id_rs1_equal_exe_rd))
+    & bkg_id_rs1_non_zero;
   assign bkg_has_forward_data_rs1[1] =
     ((mem_ctrl_r.write_rd & bkg_id_rs1_equal_mem_rd)
     |(imul_v_lo & (imul_rd_lo == bkg_id_rs1)))
     & bkg_id_rs1_non_zero;
   assign bkg_has_forward_data_rs1[2] =
-    wb_ctrl_r.write_rd & bkg_id_rs1_equal_wb_rd 
+    wb_ctrl_r.write_rd & bkg_id_rs1_equal_wb_rd
     & bkg_id_rs1_non_zero;
 
   bsg_priority_encode #(
@@ -1816,7 +1860,7 @@ module vanilla_core
     ((exe_r.decode.write_rd & bkg_id_rs2_equal_exe_rd))
     & bkg_id_rs2_non_zero;
   assign bkg_has_forward_data_rs2[1] =
-    ((mem_ctrl_r.write_rd & bkg_id_rs2_equal_mem_rd) 
+    ((mem_ctrl_r.write_rd & bkg_id_rs2_equal_mem_rd)
     |(imul_v_lo & (imul_rd_lo == bkg_id_rs2)))
     & bkg_id_rs2_non_zero;
   assign bkg_has_forward_data_rs2[2] =
@@ -1858,6 +1902,8 @@ module vanilla_core
   assign mcsr_barsend_li = id_r.decode.is_barsend_op & id_issue;
   assign stall_barrier = id_r.decode.is_barrecv_op & (barrier_data_i != barrier_data_o);
 
+
+
   // ID -> EXE
   // update npc_r, when the pipeline is not stalled, and there is a valid instruction in EXE/FP_EXE;
   always_comb begin
@@ -1893,7 +1939,7 @@ module vanilla_core
 
         if (stall_id) begin // for now, consider only 'stall_id', later try out the flush condition too!
           // Background Thread Instruction Issue!
-          
+
           exe_n = 1'b1;
           exe_n = '{
             pc_plus4:               bkg_id_r.pc_plus4,
@@ -1901,17 +1947,17 @@ module vanilla_core
             pred_or_jump_addr:      bkg_id_r.pred_or_jump_addr,
             instruction:            bkg_id_r.instruction,
             decode:                 bkg_id_r.decode,
-            rs1_val:                rs1_val_to_exe, // r1 is either: forwarded, straight from regfile, or living in a backup operand buffer 
-            rs2_val:                rs2_val_to_exe, // r2 is either: forwarded, straight from regfile, or living in a backup operand buffer 
+            rs1_val:                rs1_val_to_exe, // r1 is either: forwarded, straight from regfile, or living in a backup operand buffer
+            rs2_val:                rs2_val_to_exe, // r2 is either: forwarded, straight from regfile, or living in a backup operand buffer
             mem_addr_op2:           bkg_mem_addr_op2,
             icache_miss:            bkg_id_r.icache_miss,
             branch_predicted_taken: bkg_id_r.branch_predicted_taken
           };
-        
 
 
 
-        end 
+
+        end
       end
       else if (id_r.decode.is_fp_op) begin
         // for fp_op, we still want to keep track of npc_r.
